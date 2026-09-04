@@ -1,0 +1,24 @@
+# Python 运行产物
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# 私密配置
+backend/.env
+
+# 本地运行时产物
+runtime/datasets/*
+!runtime/datasets/.gitkeep
+runtime/models/*
+!runtime/models/.gitkeep
+runtime/hf_cache/*
+!runtime/hf_cache/.gitkeep
+runtime/logs/*
+!runtime/logs/.gitkeep
+
+# IDE 产物
+.idea/
+.vscode/
+frontend_harmony/.hvigor/
+frontend_harmony/build/
