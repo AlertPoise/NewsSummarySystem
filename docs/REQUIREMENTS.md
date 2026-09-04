@@ -1,19 +1,56 @@
-# 终版需求冻结
+# 终版需求基线
 
-## 项目与边界
+## 1. 项目目标
 
-项目名称为《基于自然语言处理的新闻文章自动摘要系统设计与实现》，工程根目录为 `NewsSummarySystem`。运行环境固定为 Windows 10/11 x64、Python 3.11、FastAPI、SQLAlchemy 2.x、PyMySQL、MySQL 8.x、PyTorch、Hugging Face Transformers 与 HarmonyOS ArkTS/ArkUI。禁止 Redis、Kafka、Celery、Docker、Kubernetes、Elasticsearch、微服务、JWT、密码登录、在线训练及以大模型 API 代替正式模型。
+系统最终由 HarmonyOS 客户端、FastAPI 后端、MySQL、两个真实新闻来源、BERT、TextRank、Seq2Seq Transformer 和 CNewSum 构成。系统采集新闻、生成最终摘要、展示新闻和模型质量，并持久化收藏与反馈。
 
-## 既定最终功能
+## 2. 功能需求
 
-1. D 接入至少两个真实新闻来源，采集标题、正文、来源、原始 URL、发布时间和分类；清除 HTML、广告、导航及推荐噪声，映射为科技、财经、社会、体育、国内、国际六类，以正文 SHA-256 去重并写入 MySQL。
-2. C 实现 `clean_text(text)` 和 `split_sentences(text)`，处理标准化、中文分句、空白、控制与异常字符及文本长度检查。
-3. C 真实使用 Hugging Face BERT 批量编码新闻句子；模型只加载一次，支持 GPU 与推理模式。
-4. C 以 BERT 句向量余弦相似度构图并真实运行 TextRank/PageRank；依据 Seq2Seq 的 `max_input_tokens` 选取关键句，再恢复原文顺序，不能固定句数。
-5. B 使用 CNewSum、PyTorch 和 Transformers 完成真正的 Seq2Seq Transformer 微调，唯一正式权重保存于 `runtime/models/news_summarizer/`；后端不得在线训练。
-6. 在线摘要必须为“正文→清洗→分句→BERT→TextRank→Token Budget→Seq2Seq→摘要”，业务层只调用 `SummaryPipeline.generate(article)`。
-7. E 的 HarmonyOS 客户端实现分类新闻、刷新、分页、详情、收藏、反馈和真实模型指标展示；客户端 UUID 持久化为 `client_id` 并通过 `X-Client-ID` 请求用户状态。
-8. 同一客户端对同一新闻只有一个收藏和一个当前反馈；反馈再次提交更新，用于后续离线分析和再训练，不能触发在线训练。
-9. B 在 CNewSum test 计算 ROUGE-1、ROUGE-2、ROUGE-L，写入 `model_evaluations`；验收 ROUGE-L ≥ 0.40。预热后按 `SummaryPipeline.generate(article)` 计时，batch size=1，平均和 P95 写库，单篇低于 1.5 秒。
+| 编号 | 需求名称 | 最终要求 | 负责人 | 阶段 | 模块/接口 | 验收标准 |
+|---|---|---|---|---|---|---|
+| FR-01 | 多新闻源采集 | 接入至少两个真实来源 | D | 3 | crawlers | 两来源均输出 RawArticle |
+| FR-02 | 新闻正文提取 | 提取标题、正文、来源、URL、时间、分类 | D | 3 | Crawler→NewsService | 六字段完整或时间为空 |
+| FR-03 | 网页噪声清理 | 去除 HTML、导航、广告、推荐等页面噪声 | D | 3 | crawlers | 入库 content 为正文 |
+| FR-04 | 新闻分类映射 | 统一到科技、财经、社会、体育、国内、国际 | D | 3 | NewsService | 仅六类之一 |
+| FR-05 | 新闻 SHA-256 去重 | 对正文计算 SHA-256 并阻止重复入库 | D | 3 | news_articles | content_hash 唯一 |
+| FR-06 | 新闻 MySQL 持久化 | 保存采集信息和摘要状态 | D/A | 3 | NewsService/Schema | 字段符合 DATABASE |
+| FR-07 | NLP 文本预处理 | 清洗、分句及异常文本检查 | C | 2 | clean_text/split_sentences | AI 单元测试通过 |
+| FR-08 | BERT 句子语义表示 | 批量真实编码，单次加载，支持 GPU | C | 2 | BertEncoder | 句向量数量对应句子 |
+| FR-09 | TextRank 关键句提取 | 用句间余弦图真实运行 TextRank/PageRank | C | 2 | TextRank | 输出同序重要性得分 |
+| FR-10 | Token Budget 选择 | 按 max_input_tokens 选句并恢复原顺序 | C | 2 | SummaryPipeline | 不固定 Top-N |
+| FR-11 | Seq2Seq 摘要生成 | 使用 B 的正式模型生成最终摘要 | B/C | 2 | SummaryPipeline | 真实模型输出 |
+| FR-12 | 新闻分类展示 | 客户端固定展示六类 | E | 4 | GET /categories | 分类契约一致 |
+| FR-13 | 新闻分页与刷新 | 支持 page、page_size、刷新 | D/E | 3/4 | GET /news | 正确分页，无 content |
+| FR-14 | 新闻详情 | 展示新闻、状态和用户状态 | D/A/E | 3/4 | GET /news/{news_id} | 字段完整 |
+| FR-15 | 新闻全文查看 | 客户端展示 content | E | 4 | 新闻详情 | 正文可阅读 |
+| FR-16 | AI 摘要展示 | 展示摘要及处理状态 | D/E | 3/4 | 摘要/详情接口 | 不伪造摘要 |
+| FR-17 | 收藏新闻 | X-Client-ID 下幂等收藏 | A/E | 3/4 | POST /favorites | 返回 is_favorite=true |
+| FR-18 | 取消收藏 | X-Client-ID 下幂等取消 | A/E | 3/4 | DELETE /favorites | 返回 is_favorite=false |
+| FR-19 | 收藏列表 | 查询客户端收藏新闻 | A/E | 3/4 | GET /favorites | 仅本客户端数据 |
+| FR-20 | 用户摘要反馈 | 提交 helpful true/false | A/E | 3/4 | POST feedback | 返回当前评价 |
+| FR-21 | 用户反馈持久化 | 同一 client/news 先插入后更新 | A | 3 | feedback | 唯一约束有效 |
+| FR-22 | 模型质量评价 | 完整流水线在 CNewSum test 计算 ROUGE | B/C/A | 2/3 | model_evaluations | 三项真实指标入库 |
+| FR-23 | 模型性能评价 | 记录平均与 P95 生成耗时 | B/C/A | 2/3 | model_evaluations | 计时规则合规 |
+| FR-24 | HarmonyOS 模型指标展示 | 调用真实指标 API | A/E | 3/4 | GET /model/metrics | 不硬编码指标 |
+| FR-25 | 摘要任务调度 | Worker 唯一调用在线 AI 并维护状态机 | D/C | 3 | Worker/SummaryPipeline | 状态迁移正确 |
 
-阶段 1 已冻结目录、数据库字段、API URL/JSON 字段、`RawArticle` 与 `SummaryPipeline` 接口。尚未实现业务必须使用负责人和阶段齐全的中文 TODO，不得伪造任何新闻、摘要、指标或已加载模型。
+## 3. 非功能需求
+
+| 编号 | 要求 | 负责人 | 阶段 | 验收标准 |
+|---|---|---|---|---|
+| NFR-01 | Windows 10/11 x64 运行 | A | 6 | 在目标环境完成集成验证 |
+| NFR-02 | 使用 MySQL 8.x | A | 1/6 | Schema 与数据库一致 |
+| NFR-03 | 使用 HarmonyOS ArkTS/ArkUI | E | 4/6 | 客户端可完成全部流程 |
+| NFR-04 | 使用 Hugging Face Transformers | B/C | 2 | 训练与在线加载可追溯 |
+| NFR-05 | CNewSum 唯一正式数据集 | B | 2/6 | 训练/评价记录均为 CNewSum |
+| NFR-06 | ROUGE-L ≥ 0.40 | B/C | 2/6 | 完整流水线 test 结果达标 |
+| NFR-07 | 单篇摘要 < 1.5 秒 | B/C | 2/6 | 预热后基准达标 |
+| NFR-08 | 后端不得在线训练 | B/C/D | 2/3 | 后端仅加载正式权重 |
+| NFR-09 | 数据集、权重、缓存不提交 Git | A/B/C | 1/6 | Git 检查通过 |
+| NFR-10 | 跨模块接口遵守冻结文档 | 全员 | 1-6 | 契约检查通过 |
+| NFR-11 | 注释和 docstring 使用中文 | 全员 | 1-6 | 代码审查通过 |
+| NFR-12 | API/数据库字段使用英文标识符 | 全员 | 1-6 | 文档与代码审查通过 |
+
+## 4. 明确不做
+
+不实现用户账号密码、JWT、推荐系统、评论、Redis、Kafka、Celery、Docker、Kubernetes、Elasticsearch、微服务、在线实时训练或以大模型 API 替代正式摘要模型；不得引入 THUCNews。

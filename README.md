@@ -2,75 +2,70 @@
 
 ## 项目简介
 
-本工程是 Windows 10/11 x64 环境下运行的课程项目终版工程。系统采集两个真实新闻来源，将清洗后的新闻写入 MySQL，依次经中文预处理、BERT 句向量、TextRank、Transformer 输入 Token Budget 和 Seq2Seq Transformer 生成摘要，并由 HarmonyOS 客户端展示新闻、收藏、评价及模型指标。
+NewsSummarySystem 是一个终版课程项目：HarmonyOS 客户端通过 FastAPI 访问新闻、收藏、反馈和模型指标；后端以 MySQL 持久化真实新闻及摘要任务；在线摘要固定使用 BERT 句子语义表示、TextRank 关键句排序、Token Budget 与 Seq2Seq Transformer。CNewSum 是唯一正式训练和评价数据集。
 
-当前仅完成阶段 1 的需求、架构、接口、数据库和代码骨架冻结；不会伪造新闻、摘要、模型指标或模型加载结果。
+## 最终核心功能
 
-## 完整功能
-
-- 两个真实新闻来源采集、网页正文提取、分类映射和 SHA-256 去重。
-- 基于 CNewSum 的 Seq2Seq Transformer 训练、ROUGE 评价和性能基准测试。
-- BERT 句向量、TextRank 排序、Token Budget 关键句选择及最终摘要生成。
-- 新闻分类、分页、详情、摘要请求、收藏、反馈和模型指标 REST API。
-- HarmonyOS 新闻浏览、收藏、评价、模型信息及异常状态展示。
+- 两个真实新闻来源的采集、正文提取、网页噪声清理、六类分类映射、SHA-256 去重和 MySQL 持久化。
+- 新闻分类展示、分页、刷新、详情、全文、AI 摘要、收藏、摘要反馈与模型信息展示。
+- 完整正式摘要路径：清洗、中文分句、BERT、余弦相似度、TextRank/PageRank、Token Budget、原文顺序恢复、Seq2Seq Transformer。
+- CNewSum test 的 ROUGE-1、ROUGE-2、ROUGE-L 与完整流水线性能评价。
 
 ## 技术栈
 
-后端使用 Python 3.11、FastAPI、SQLAlchemy 2.x、PyMySQL 与 MySQL 8.x；AI 使用 PyTorch 和 Hugging Face Transformers；客户端使用 HarmonyOS、ArkTS、ArkUI 与 DevEco Studio。唯一正式训练和评价数据集为 CNewSum。
+| 层级 | 固定技术 |
+|---|---|
+| 客户端 | HarmonyOS、ArkTS、ArkUI、DevEco Studio |
+| 后端 | Python 3.11、FastAPI、SQLAlchemy 2.x、PyMySQL |
+| 数据库 | MySQL 8.x、utf8mb4 |
+| AI | PyTorch、Hugging Face Transformers、BERT、TextRank、Seq2Seq Transformer |
+| 数据集 | CNewSum |
 
-## 架构概览
+## 总体数据流
 
-`新闻源 → Crawler → MySQL → Worker → SummaryPipeline → MySQL → FastAPI → HarmonyOS`。详细边界见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+`真实新闻网站 → Crawler[D] → NewsService[D] → MySQL → Worker[D] → SummaryPipeline[C] → MySQL → FastAPI[A/D] → HarmonyOS[E]`。B 在离线流程中训练并交付唯一正式摘要模型，详细边界见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
-## 目录结构
+## 五人职责概览
+
+| 角色 | 终版责任 |
+|---|---|
+| A | 架构、数据库 Schema、FastAPI 公共规范、收藏、反馈、模型指标、集成与文档 |
+| B | CNewSum、训练、模型交付、ROUGE、性能基准 |
+| C | 文本预处理、BERT、TextRank、Token Budget、在线摘要流水线与 AI 测试 |
+| D | 新闻源、网页处理、新闻业务、Worker、新闻 API 与摘要任务 |
+| E | 完整 HarmonyOS 客户端 |
+
+## 六阶段概览
+
+阶段1冻结需求、架构、职责、数据库和接口；阶段2实现 CNewSum、正式模型与在线 AI；阶段3实现真实新闻业务、Worker 和后端业务 API；阶段4实现 HarmonyOS；阶段5端到端联调；阶段6测试、性能复核、实践文档、视频与提交。任务编号和验收见 [DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)。
+
+## 精简目录结构
 
 ```text
 NewsSummarySystem/
-├── docs/                 中文冻结文档
-├── backend/              FastAPI、数据模型、AI 和采集骨架
-├── model_training/       CNewSum 训练、评价和性能测试骨架
-├── frontend_harmony/     HarmonyOS 正式工程实施说明
-├── sql/                  MySQL 建库脚本
-├── scripts/              Windows 初始化与启动脚本
-└── runtime/              本地数据集、模型、缓存和日志（不提交）
+├── README.md
+├── docs/                         需求、架构、计划、API、数据库、AI记录
+├── backend/                      已冻结的后端骨架
+├── model_training/               已冻结的离线训练骨架
+├── frontend_harmony/             阶段4正式客户端位置
+├── sql/  scripts/                后续阶段使用的基础设施文件
+└── runtime/                      数据集、模型、缓存、日志，均不提交 Git
 ```
 
-## 开发计划与职责
+## 文档阅读顺序
 
-六阶段安排见 [DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)，A/B/C/D/E 职责见其中“人员分工”。任何后续实现必须保持已冻结的目录、字段、路由和 `SummaryPipeline.generate(article)` 接口。
+所有成员首先阅读本文件、[REQUIREMENTS.md](docs/REQUIREMENTS.md) 和 [DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) 中自己的角色部分。涉及跨模块接口时阅读 [ARCHITECTURE.md](docs/ARCHITECTURE.md)；涉及 REST 时阅读 [API.md](docs/API.md)；涉及 MySQL 时阅读 [DATABASE.md](docs/DATABASE.md)；AI 使用记录写入 [AI_PROMPTS.md](docs/AI_PROMPTS.md)。
 
-## Windows 运行环境
+## Windows 基础开发环境
 
-安装与配置见 [WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md)。阶段 1 可建立 Python 3.11 虚拟环境、安装后端依赖并启动健康检查；MySQL、AI 模型、Worker 与 HarmonyOS 的完整运行分别按其所属阶段完成。
-
-## MySQL 基本配置
-
-数据库名为 `news_summary`，服务地址为 `127.0.0.1:3306`，应用用户为 `news_app`，字符集为 `utf8mb4`。复制 `backend/.env.example` 为 `backend/.env` 后填入本机密码；密码不写入源码或 Git。执行 `scripts/init_database.ps1` 建立数据库结构。
-
-## 后端与 Worker
-
-在 `backend` 目录创建虚拟环境、安装 `requirements.txt` 后，运行 `../scripts/start_backend.ps1`。阶段 1 当前可用接口为 `GET /api/health`。Worker 最终由 `../scripts/run_worker.ps1` 启动，具体业务由 D 在阶段 3 完成。
+固定环境为 Windows 10/11 x64、Python 3.11、MySQL 8、DevEco Studio、PyTorch 与 Transformers。CUDA/GPU 的正式版本和安装命令由 B、C 在阶段2经真实训练与推理验证后填写。本阶段不要求运行任何数据库、后端或 Worker 初始化脚本。
 
 ## CNewSum 与模型目录
 
-CNewSum 是唯一正式训练与评价数据集，原始数据位于 `runtime/datasets/`，不提交 Git。正式摘要权重保存到 `runtime/models/news_summarizer/`，不在线训练且不提交 Git；B 在阶段 2 完成训练，C 在阶段 2 完成在线加载。
+`runtime/datasets/` 存放 CNewSum，`runtime/models/news_summarizer/` 存放唯一正式模型，`runtime/hf_cache/` 存放模型缓存，均不得提交 Git。后端不得在线训练。
 
-## HarmonyOS
+## 硬性指标与当前阶段
 
-阶段 4 由 E 按 [frontend_harmony/README.md](frontend_harmony/README.md) 创建 DevEco Studio 正式工程，仅通过 FastAPI 访问数据和摘要能力。
+CNewSum test 上完整正式摘要流水线的 ROUGE-L 必须不低于 0.40；模型加载、GPU 预热后，`SummaryPipeline.generate(article)` 在 batch_size=1 下单篇生成必须小于 1.5 秒，并记录平均与 P95 耗时。
 
-## 测试与硬性指标
-
-测试规划见 [TEST_PLAN.md](docs/TEST_PLAN.md)。最终须在 CNewSum test 达到 ROUGE-L ≥ 0.40，并且模型预热后 `SummaryPipeline.generate(article)` 单篇耗时小于 1.5 秒。
-
-## 文档索引
-
-- [需求冻结](docs/REQUIREMENTS.md)
-- [系统架构](docs/ARCHITECTURE.md)
-- [开发计划](docs/DEVELOPMENT_PLAN.md)
-- [REST API](docs/API.md)
-- [数据库设计](docs/DATABASE.md)
-- [AI 流水线](docs/AI_PIPELINE.md)
-- [测试计划](docs/TEST_PLAN.md)
-- [Windows 环境](docs/WINDOWS_SETUP.md)
-- [AI 使用记录](docs/AI_PROMPTS.md)
+当前仍为阶段1：仅完成文档、职责和接口冻结，未开始模型、爬虫、业务 API、Worker 或 HarmonyOS 正式开发。
