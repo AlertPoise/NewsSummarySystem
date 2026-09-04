@@ -51,6 +51,3 @@
 | NFR-11 | 注释和 docstring 使用中文 | 全员 | 1-6 | 代码审查通过 |
 | NFR-12 | API/数据库字段使用英文标识符 | 全员 | 1-6 | 文档与代码审查通过 |
 
-## 4. 明确不做
-
-不实现用户账号密码、JWT、推荐系统、评论、Redis、Kafka、Celery、Docker、Kubernetes、Elasticsearch、微服务、在线实时训练或以大模型 API 替代正式摘要模型；不得引入 THUCNews。

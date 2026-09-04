@@ -41,9 +41,10 @@
 | B2-08 | B | 验证集评价 | evaluate | 权重/validation→验证指标 | B2-07→B2-09 | 使用真实生成结果 |
 | B2-09 | B | 正式模型导出 | models | 验收模型→news_summarizer | B2-08→B2-12/C | 目录可由 C 只读加载 |
 | B2-10 | B | CNewSum test ROUGE评价 | evaluate | 完整流程/test→三项 ROUGE | B2-09/C2-13→B2-13/A | ROUGE-L≥0.40，非裸模型结果 |
-| B2-11 | B | 性能Benchmark | benchmark | 预热 Pipeline→avg/P95 | B2-09/C2-14→B2-13 | batch_size=1，单篇<1.5秒 |
+| B2-11 | B | 初始性能 Benchmark | benchmark | B2-09 正式模型与已预热完整 Pipeline→初始 avg_generation_time_ms、p95_generation_time_ms、性能瓶颈 | B2-09/C2-11→C2-14 | batch_size=1；从 generate 进入至最终摘要结束计时；不依赖 C2-14 |
 | B2-12 | B | 正式模型信息交付C | models、元信息 | 权重/配置→模型交付包 | B2-09→C2-09 | 含名称、版本、tokenizer、长度、generation_config |
-| B2-13 | B | 模型评价结果交付A | 评价产物 | 指标→固定字段记录 | B2-10/11→A3-06 | dataset=CNewSum、split=test，字段全量一致 |
+| B2-13 | B | 模型评价结果交付A | 评价产物 | 最终 ROUGE 与最终性能结果→固定字段记录 | B2-10/B2-14→A3-06 | dataset=CNewSum、split=test，字段全量一致，不使用初始 Benchmark |
+| B2-14 | B | 最终性能 Benchmark | benchmark | C2-14 优化后的正式 Pipeline→最终 avg_generation_time_ms、p95_generation_time_ms、正式性能验收结果 | B2-11/C2-14→B2-13/A | batch_size=1、模型已加载、GPU 已预热；按冻结计时规则执行且单篇<1.5秒 |
 
 ### C 任务
 
@@ -51,7 +52,7 @@
 |---|---|---|---|---|---|---|
 | C2-01 | C | NLP文本规范化 | app/ai | article→清洗文本 | 无→C2-02 | 处理控制字符、空白、异常字符 |
 | C2-02 | C | 中文分句 | app/ai | 清洗文本→有序句子 | C2-01→C2-04 | 处理空、过短、超长文本 |
-| C2-03 | C | BERT模型加载 | app/ai | BERT配置→单例编码器 | B2-12→C2-04 | GPU、inference_mode、只加载一次 |
+| C2-03 | C | BERT checkpoint 选择与模型加载 | app/ai | CNewSum/新闻语言特点、可用中文 BERT checkpoint、本机硬件、AI 配置→正式 BERT checkpoint、Tokenizer/Encoder、可复用 BertEncoder | C2-01/C2-02→C2-04；无外部角色依赖 | C 自行验证选择；使用 Hugging Face、单次加载、GPU、inference_mode/no_grad、批量句编码；写入对应配置，不改变 B 的 Seq2Seq 交付 |
 | C2-04 | C | BERT批量句编码 | app/ai | 句子→句向量 | C2-02/03→C2-05 | 向量数与句数对应 |
 | C2-05 | C | 句子余弦相似度 | app/ai | 句向量→相似度图 | C2-04→C2-06 | 相似度计算可测试 |
 | C2-06 | C | TextRank/PageRank | app/ai | 相似度图→句子得分 | C2-05→C2-07 | 真实 PageRank，非固定 Top-N |
@@ -59,10 +60,10 @@
 | C2-08 | C | 关键句原文顺序恢复 | app/ai | 选句索引→有序输入文本 | C2-07→C2-11 | 按原始位置恢复 |
 | C2-09 | C | B正式Transformer在线加载 | app/ai | B交付包→加载模型 | B2-12→C2-10 | 只读正式目录，参数一致 |
 | C2-10 | C | SummaryPipeline.load | app/ai | 配置/组件→预热 Pipeline | C2-03/09→C2-11 | 不改变冻结签名 |
-| C2-11 | C | SummaryPipeline.generate | app/ai | article→SummaryResult | C2-01至10→D3-11 | 全链路计时，字段固定 |
+| C2-11 | C | SummaryPipeline.generate | app/ai | article→SummaryResult | C2-01至10→D3-12 | 全链路计时，字段固定 |
 | C2-12 | C | AI异常处理 | app/ai/tests | 非法文本/模型异常→可处理失败 | C2-11→D3-12 | 不伪造摘要，异常可定位 |
 | C2-13 | C | 完整Pipeline评价配合 | app/ai | test 样本→真实最终摘要 | C2-11→B2-10 | 评价覆盖完整路径 |
-| C2-14 | C | 性能优化配合 | app/ai | 基准瓶颈→合规优化结果 | B2-11→B2-11 | 不绕过 BERT/TextRank |
+| C2-14 | C | Pipeline性能优化 | app/ai | 初始 Benchmark 与性能瓶颈→优化后的完整 SummaryPipeline | B2-11→B2-14 | 不绕过 BERT/TextRank，不改变冻结接口或删除正式步骤；若改变摘要结果、关键句选择或 generation 参数，必须重新执行 B2-10 并保持 ROUGE-L≥0.40 |
 
 **阶段2验收：**真实 CNewSum、唯一正式 Seq2Seq、真实 BERT/TextRank、可加载 SummaryPipeline、完整 Pipeline ROUGE-L≥0.40、预热后单篇<1.5秒，指标可交付 A。
 
@@ -94,9 +95,9 @@
 | D3-08 | D | 分类查询业务 | NewsService/news API | 无→固定六分类 | API→E | 不按数据库动态返回 |
 | D3-09 | D | 新闻分页查询 | NewsService/news API | page/category→列表页 | D3-07→E | 默认时间倒序，无 content |
 | D3-10 | D | 新闻详情查询 | NewsService/news API | news_id→新闻详情 | D3-07/A3-05→D3-14 | 详情字段完整 |
-| D3-11 | D | SummaryService | 摘要服务 | news/Pipeline→任务协调 | C2-11→D3-12 | 只调用 Pipeline 公共接口 |
-| D3-12 | D | Worker | worker | pending→状态更新/摘要结果 | D3-11/C2-11→E | 唯一正式 AI 调用者 |
-| D3-13 | D | 摘要触发和重试业务 | news API/service | news_id/status→202或200 | D3-12→E | HTTP 线程不推理 |
+| D3-11 | D | SummaryService | 摘要服务 | news_id、新闻记录、当前 summary_status、Worker 传回的 SummaryResult 或错误信息→摘要任务状态、任务领取结果、持久化状态结果 | DATABASE 状态机/API 摘要语义→D3-12/D3-13 | 只处理状态、事务、并发控制和持久化；不得依赖 C2-11、不得持有或调用 SummaryPipeline |
+| D3-12 | D | Worker | worker | SummaryService 提供的 pending/processing 新闻、C 的 SummaryPipeline→SummaryResult 或失败信息 | D3-11/C2-11→D3-13/E | 唯一正式调用 SummaryPipeline.generate(article)；生成结束后将结果或失败信息交给 SummaryService 持久化 |
+| D3-13 | D | 摘要触发和重试业务 | news API/service | news_id/status→202或200 | D3-11→E | 只调用 SummaryService；HTTP 线程不调用 Worker 内部 AI 或 SummaryPipeline |
 | D3-14 | D | 与A用户状态集成 | NewsService | user state→详情字段 | A3-05→A3-07/E | 不重写收藏/反馈查询 |
 
 **阶段3验收：**至少两个真实新闻源、正文提取、去噪、分类、去重、MySQL、Worker、新闻 API、收藏、反馈和模型指标全部满足 API/DATABASE 契约。
@@ -146,6 +147,9 @@
 | A6-02 | A | README最终整理 | README/docs | 真实结果→最终入口文档 | A6-01→提交 | 不声明未完成能力 |
 | A6-03 | A | 软件实践文档汇总 | docs | 各角色材料→实践文档 | B/C/D/E→提交 | 证据可追溯 |
 | A6-04 | A | 最终提交检查 | 全仓库检查 | 成果→提交清单 | A6-01至03→全员 | 不含数据、权重、缓存、密码 |
+| B6-01 | B | 最终 CNewSum test ROUGE 复核 | model_training、评价材料 | 最终正式模型、最终 SummaryPipeline、CNewSum test→最终 ROUGE-1、ROUGE-2、ROUGE-L | B2-10/C2-13/阶段5最终版本→A6-03/A6-04 | 使用完整 Pipeline，不得以裸 Transformer 冒充；ROUGE-L≥0.40 |
+| B6-02 | B | 最终性能 Benchmark 复核 | model_training、评价材料 | 最终联调正式 Pipeline→最终 avg_generation_time_ms、p95_generation_time_ms、正式性能记录 | B2-14/C2-14/阶段5最终版本→A6-03/A6-04 | 沿用冻结计时规则，batch_size=1，模型已加载且 GPU 已预热 |
+| B6-03 | B | 模型训练与评价材料整理 | model_training、docs | CNewSum处理记录、模型选择、训练配置、最终模型信息、B6-01/B6-02→训练和评价材料 | B6-01/B6-02→A6-03 | 数据说明、处理、模型依据、参数、训练、版本、ROUGE、性能和验收结论均来自真实实验 |
 | C6-01 | C | AI单元和异常测试 | AI/tests | AI 样本→测试结果 | C2→A6-01 | 覆盖清洗、BERT、TextRank、Pipeline 异常 |
 | C6-02 | C | AI实现章节文档整理 | docs | 实测过程→AI说明 | C6-01→A6-03 | 与正式实现一致 |
 | D6-01 | D | Crawler测试 | crawlers/tests | 两来源→测试报告 | D3→A6-01 | 提取、去噪、映射、去重均覆盖 |
@@ -154,4 +158,4 @@
 | E6-02 | E | 页面截图和演示流程 | frontend_harmony/docs | 真实页面→截图/流程 | E6-01→A6-03 | 截图对应真实接口 |
 | E6-03 | E | 演示视频 | frontend_harmony/docs | 真实系统→视频 | E6-02→提交 | 展示端到端与核心功能 |
 
-**阶段6验收：**完成模块与集成测试、ROUGE/性能复核、实践文档、AI 提示词、演示视频和最终提交检查。
+**阶段6验收：**B 负责最终模型质量、性能复核和训练/评价材料；全员完成模块与集成测试、ROUGE/性能复核、实践文档、AI 提示词、演示视频和最终提交检查。

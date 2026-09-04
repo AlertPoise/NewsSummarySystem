@@ -7,15 +7,17 @@
       ↓
 Crawler [D] → RawArticle → NewsService [D] → MySQL [A维护Schema]
                                              ↓
-HarmonyOS [E] ← FastAPI Route [A/D] ← Service ← Worker [D]
-                                                   ↓
-                                          SummaryPipeline [C]
-                                          ↓ BERT → TextRank → Seq2Seq Transformer
-                                                               ↑
-                                           B 离线训练、评价并交付正式模型
+HarmonyOS [E] ← FastAPI Route [A/D] → SummaryService [D] → SQLAlchemy / MySQL
+                                             ↑                   ↑
+                                        Worker [D] ──────────────┘
+                                             ↓
+                                    SummaryPipeline [C]
+                                    ↓ BERT → TextRank → Seq2Seq Transformer
+                                                         ↑
+                                     B 离线训练、评价并交付正式模型
 ```
 
-依赖只能沿图中方向传递：`Crawler → NewsService → MySQL`、`API → Service → SQLAlchemy`、`SummaryService → SummaryPipeline`、`HarmonyOS → FastAPI`。禁止 API Route 直接写数据库业务、操作 BERT/TextRank 或调用 `model.generate`；禁止 Crawler 调用 AI；禁止 AI 模块操作收藏或新闻业务数据库；禁止 HarmonyOS 访问 MySQL 或 Python AI。
+依赖只能沿图中方向传递：`Crawler → NewsService → MySQL`、`API → SummaryService → SQLAlchemy`、`Worker → SummaryService → SQLAlchemy`、`Worker → SummaryPipeline`、`HarmonyOS → FastAPI`。禁止 API Route 直接写数据库业务、操作 BERT/TextRank 或调用 `model.generate`；禁止 SummaryService 持有或调用 SummaryPipeline；禁止 Crawler 调用 AI；禁止 AI 模块操作收藏或新闻业务数据库；禁止 HarmonyOS 访问 MySQL 或 Python AI。
 
 ## 2. 模块职责
 
@@ -25,7 +27,8 @@ HarmonyOS [E] ← FastAPI Route [A/D] ← Service ← Worker [D]
 | NewsService | D | RawArticle、查询参数 | 新闻记录、分类、分页、详情 | 依赖具体来源类型 |
 | 数据库公共层 | A | SQLAlchemy Schema/会话约定 | 四张核心表规范 | 修改 D 的业务规则 |
 | SummaryPipeline | C | article 字符串 | SummaryResult | 改动公共接口、写业务表 |
-| Worker/SummaryService | D | pending 新闻和 Pipeline | 摘要任务状态与持久化结果 | 直接调用 AI 内部组件 |
+| SummaryService | D | news_id、新闻记录、当前 summary_status、SummaryResult 或错误信息 | 任务领取结果、状态和持久化结果 | 持有或调用 Pipeline、BERT、TextRank、Transformer |
+| Worker | D | SummaryService 领取的 processing 新闻、SummaryPipeline | SummaryResult 或失败信息 | 绕过 SummaryService 另建状态机 |
 | 模型训练与评价 | B | CNewSum、训练配置 | 正式模型和评价交付物 | 修改新闻业务表 |
 | 用户业务 | A | client_id、news_id、helpful | 收藏、反馈、用户状态 | 复制 D 的新闻查询逻辑 |
 | HarmonyOS | E | REST 响应 | 页面与交互状态 | 访问 MySQL/Python AI |
@@ -34,9 +37,9 @@ HarmonyOS [E] ← FastAPI Route [A/D] ← Service ← Worker [D]
 
 1. D 的 Crawler 从真实来源解析网页，执行网页级清洗并返回 RawArticle。
 2. D 的 NewsService 映射六类、计算正文 SHA-256、去重并写入 `news_articles`，摘要状态为 `pending`。
-3. D 的 Worker 原子取得 pending 新闻，置为 `processing`，并调用唯一公开 AI 接口。
+3. D 的 Worker 通过 SummaryService 原子取得 pending 新闻，状态变为 `processing`，并调用唯一公开 AI 接口。
 4. C 的 Pipeline 按“清洗→分句→BERT→余弦相似度→TextRank/PageRank→Token Budget→原文顺序恢复→Seq2Seq”生成 SummaryResult。
-5. Worker 成功写入 summary、summary_time_ms、model_version 和 `completed`；失败写入 summary_error 和 `failed`。
+5. Worker 将 SummaryResult 或失败信息交给 SummaryService；SummaryService 成功持久化 summary、summary_time_ms、model_version 和 `completed`，失败持久化 summary_error 和 `failed`。
 6. A/D 的 API 经 Service 返回新闻与用户状态；E 的客户端只按 API 契约显示。
 
 ## 4. 离线训练流与 B→C 模型交付
@@ -105,14 +108,16 @@ D 的详情逻辑不能重新实现 favorites/feedback 查询。B/C 向 A 的评
 
 ## 8. Worker 与摘要状态机
 
-Worker 是唯一正式调用 `SummaryPipeline.generate(article)` 的业务组件。`POST /api/news/{news_id}/summary` 不在 HTTP 线程运行 Transformer：completed 返回缓存，processing 返回处理中，pending 保持/确认 pending 后返回已接受，failed 置回 pending 后返回已接受重试，由 Worker 统一处理。
+SummaryService 只负责摘要任务状态、事务、并发控制和数据库协调：查询当前状态；处理 API 摘要请求；completed 返回已有结果；processing 返回处理中；pending 保持待处理；failed 原子重置为 pending；协助 Worker 领取 pending 并完成 pending→processing；接收 Worker 成功结果或失败信息并持久化最终状态。SummaryService 不得持有或调用 SummaryPipeline，不得直接使用 BERT、TextRank 或 Transformer。
+
+Worker 是唯一正式调用 `SummaryPipeline.generate(article)` 的业务组件。Worker 通过 SummaryService 原子领取 pending 新闻，状态变为 processing；Worker 调用 Pipeline 并将 SummaryResult 交回 SummaryService；发生异常时将错误信息交回 SummaryService。`POST /api/news/{news_id}/summary` 仅调用 SummaryService，不在 HTTP 线程运行 Transformer：completed 返回缓存，processing 返回处理中，pending 保持/确认 pending 后返回已接受，failed 置回 pending 后返回已接受重试。
 
 ```text
 pending → processing → completed
                  └──→ failed → pending
 ```
 
-成功只在 Worker 中写 summary、summary_time_ms、model_version；失败写 summary_error。不得直接由 failed 变为 completed，也不得形成 API 与 Worker 两套摘要逻辑。
+SummaryService 依据 Worker 交付结果持久化：成功写 summary、summary_time_ms、model_version 和 completed；失败写 summary_error 和 failed。不得直接由 failed 变为 completed，也不得形成 API 与 Worker 两套摘要逻辑。
 
 ## 9. 参数命名、时间与接口变更
 
