@@ -264,3 +264,39 @@ Git commit：pending
 最终结果：审计约束与检查脚本已建立。
 
 AI_PROMPTS_PENDING：false
+
+## C 阶段2 在线摘要模块开发记录
+
+日期：2026-09-05
+
+人员：C
+
+角色：NLP 预处理 / BERT / TextRank / Token Budget / SummaryPipeline / AI 测试
+
+阶段：阶段2
+
+任务编号：C2-01、C2-02、C2-03、C2-04、C2-05、C2-06、C2-07、C2-08、C2-10（含 C2-12 错误处理；C2-09/11 待 B 交付）
+
+使用工具：Claude Code
+
+任务目的：以角色 C 实现阶段2在线 AI 摘要模块，搭建"差 B 正式模型即全链路可跑"的框架，并完成环境搭建与 AI 测试；B 交付正式摘要模型后即可接入真实端到端生成。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：以组员 C 身份推进阶段2。允许修改 backend/app/ai/ 与 AI 相关测试；不得改动冻结的 SummaryPipeline/SummaryResult 公共接口、数据库 Schema、其他角色文件或公共契约。环境固定 Python 3.11 + PyTorch/Transformers；正式摘要模型由 B 交付，缺模型须抛明确"AI 不可用"错误，禁止伪造摘要或绕过 BERT/TextRank。在线主流程固定为清洗→中文分句→BERT→余弦相似度→TextRank→Token Budget→恢复原序→Seq2Seq。先完成不依赖 B 交付的 C2-01~C2-08、C2-10、错误处理与单测；B 交付后接 C2-09/11。注释/docstring 用中文、标识符用英文，不硬编码路径与凭据，不提交数据/权重/缓存/.env。修改前先读冻结文档。
+
+涉及文件：backend/app/ai/preprocess.py、bert_encoder.py、textrank.py、pipeline.py、summarizer.py；backend/tests/test_ai.py、test_ai_integration.py、test_preprocess.py、test_textrank.py；pytest.ini。
+
+AI 是否实际修改文件：true
+
+AI生成内容：① preprocess.py：clean_text（控制字符/零宽/HTML实体残留/NFKC/空白规整）、split_sentences（中文分句+无意义句过滤）。② bert_encoder.py：BertEncoder 单次加载 google-bert/bert-base-chinese，GPU/CPU 自动探测，mean-pooling 批量编码，支持 HF_HUB_OFFLINE 离线加载。③ textrank.py：余弦相似度矩阵+PageRank 幂迭代+Token Budget 贪心选句（超长句二次切分、恢复原序、不固定 Top-N）。④ summarizer.py：TransformerSummarizer 读取 B 的 model_metadata.json+权重校验，缺正式模型抛 AiUnavailableError。⑤ pipeline.py：SummaryPipeline.load/generate 全链路编排+毫秒计时，返回冻结 SummaryResult。⑥ 测试：35 单测+2 真实 BERT GPU 集成测试全绿，在含 A 阶段3 的最新 main 环境下 66 测试全绿。
+
+人工检查：冻结 SummaryResult 字段与 SummaryPipeline 方法签名未改动；仅改 C 职责范围文件；无伪造摘要（缺正式模型时 load/generate 抛 AiUnavailableError）；注释中文、标识符英文；.gitignore 排除 .venv/缓存/.env，未提交数据与权重；无外网时依赖本地 HF 缓存，测试稳定。
+
+人工修改：pending
+
+Git commit：C 分支重建提交（含 AI 模块实现与测试）
+
+最终结果：C 分支已重建到最新 main 之上（origin/main 2535670），AI 模块实现+测试就绪，B 交付正式模型后可真实端到端运行。
+
+AI_PROMPTS_PENDING：false
