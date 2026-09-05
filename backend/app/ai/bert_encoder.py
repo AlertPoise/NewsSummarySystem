@@ -109,3 +109,15 @@ class BertEncoder:
         if not result:
             raise RuntimeError("编码结果为空。")
         return result[0]
+
+    def count_tokens(self, text: str) -> int:
+        """计算文本经 tokenizer 分词后的 token 数量（不含特殊标记）。
+
+        用于流水线入口的输入长度预检；tokenizer 在 load() 时已加载，可复用。
+        """
+        if not self._loaded:
+            raise RuntimeError("BertEncoder 未加载，请先调用 load()。")
+        if not text:
+            return 0
+        ids = self._tokenizer(text, add_special_tokens=False)["input_ids"]
+        return len(ids)

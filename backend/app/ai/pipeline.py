@@ -27,6 +27,10 @@ from app.ai.textrank import rank_sentences, select_sentences_by_budget
 from dataclasses import dataclass
 
 
+class InputTooLongError(AiUnavailableError):
+    """输入正文超过正式模型最大输入 token 数（AI 不可用类，可被调用方识别）。"""
+
+
 @dataclass(frozen=True)
 class SummaryResult:
     """一次真实摘要生成的标准结果。"""
@@ -128,6 +132,13 @@ class SummaryPipeline:
         cleaned = clean_text(article)
         if not cleaned:
             raise AiUnavailableError("输入正文清洗后为空，无法生成摘要。")
+        # 1.1 输入长度预检：超过正式模型最大输入 token 的新闻不生成摘要
+        # （超长新闻实测摘要质量/正确率低，团队统一约定直接拒绝，不送入后续流程）
+        input_tokens = self.bert.count_tokens(cleaned)
+        if input_tokens > self.max_input_tokens:
+            raise InputTooLongError(
+                f"输入正文过长：{input_tokens} token，超过正式模型最大输入 {self.max_input_tokens} token。"
+            )
         # 2. 中文分句
         sentences = split_sentences(cleaned)
         if not sentences:

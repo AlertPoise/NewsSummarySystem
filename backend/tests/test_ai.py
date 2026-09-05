@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.ai.pipeline import SummaryPipeline, SummaryResult
+from app.ai.pipeline import InputTooLongError, SummaryPipeline, SummaryResult
 from app.ai.summarizer import AiUnavailableError, TransformerSummarizer
 
 
@@ -105,3 +105,68 @@ class TestAiUnavailable:
         pipeline = SummaryPipeline(model_dir=str(model_dir))
         with pytest.raises(AiUnavailableError):
             pipeline.load()
+
+
+class TestInputLengthLimit:
+    """超长输入（超过 max_input_tokens）的拒绝行为。"""
+
+    def _make_pipeline(
+        self, monkeypatch: pytest.MonkeyPatch, fake_tokens: int
+    ) -> SummaryPipeline:
+        """构造已 load 的 Pipeline：BERT 桩提供 token 计数，Transformer 桩可生成。"""
+        import numpy as np
+
+        class FakeBert:
+            def __init__(self, **kwargs: object) -> None:
+                self.is_loaded = True
+
+            def load(self) -> None:
+                self.is_loaded = True
+
+            def count_tokens(self, text: str) -> int:
+                return fake_tokens
+
+            def encode_batch(self, sentences: list[str]) -> list[object]:
+                return [np.zeros(4) for _ in sentences]
+
+        class FakeSummarizer:
+            model_version = "test-v0"
+            metadata = {
+                "model_name": "dummy",
+                "model_version": "test-v0",
+                "dataset": "CNewSum",
+                "max_input_tokens": 512,
+                "max_new_tokens": 60,
+            }
+
+            def __init__(self, model_dir: object) -> None:
+                pass
+
+            def load(self) -> None:
+                pass
+
+            def generate(self, text: str) -> str:
+                return "生成的摘要。"
+
+        monkeypatch.setattr("app.ai.pipeline.BertEncoder", FakeBert)
+        monkeypatch.setattr("app.ai.pipeline.TransformerSummarizer", FakeSummarizer)
+        pipeline = SummaryPipeline(max_input_tokens=512)
+        pipeline.load()
+        return pipeline
+
+    def test_overlong_input_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """超过 max_input_tokens 的输入抛 InputTooLongError，不生成摘要。"""
+        pipeline = self._make_pipeline(monkeypatch, fake_tokens=800)
+        with pytest.raises(InputTooLongError):
+            pipeline.generate("这是一篇很长的新闻。")
+
+    def test_normal_length_input_passes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """未超过上限的输入正常生成摘要。"""
+        pipeline = self._make_pipeline(monkeypatch, fake_tokens=100)
+        result = pipeline.generate("这是一篇正常长度的新闻。")
+        assert result.summary == "生成的摘要。"
+        assert result.generation_time_ms >= 0
