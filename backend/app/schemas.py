@@ -68,6 +68,20 @@ class FeedbackRequest(BaseModel):
     helpful: bool
 
 
+class FeedbackResponse(BaseModel):
+    """摘要评价成功响应，对应 docs/API.md §11。"""
+
+    news_id: int
+    helpful: bool
+
+
+class FavoriteResponse(BaseModel):
+    """收藏与取消收藏的统一响应数据，对应 docs/API.md §9-10。"""
+
+    news_id: int
+    is_favorite: bool
+
+
 class ModelMetrics(BaseModel):
     """正式模型评价指标。"""
 
