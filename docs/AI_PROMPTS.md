@@ -300,3 +300,39 @@ Git commit：pending
 最终结果：两处偏差已按冻结契约修复；pytest 31 用例、SQLite CAS 专项冒烟 7/7、真实 MySQL 重试路径冒烟通过，待人工验收与提交。
 
 AI_PROMPTS_PENDING：false
+
+---
+
+日期：2026-09-06
+
+人员：D
+
+角色：新闻采集/业务/Worker（D-PlutoAkane）
+
+阶段：阶段3
+
+任务编号：D3-12
+
+使用工具：ZCode
+
+任务目的：完成骨架中 TODO(D-阶段3) 的 run_worker.ps1 调度入口；移除已完成使命的 verify_d3.py 阶段验收脚本。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：用户指示"编写这个脚本文件，并删除verify_d3.py脚本文件"。要求按已实现的 python -m app.worker CLI 做参数化透传，显式使用 backend/.venv 解释器，单轮模式配合外部计划任务调度。
+
+涉及文件：scripts/run_worker.ps1、scripts/verify_d3.py（删除）、docs/AI_PROMPTS.md。
+
+AI 是否实际修改文件：true
+
+AI生成内容：run_worker.ps1 参数化实现（venv 解释器校验、UTF-8 控制台、Push-Location、退出码透传、BOM 修复 PowerShell 5.1 中文解析）；真实单轮验证通过（采集+去重+摘要优雅跳过）。
+
+人工检查：pending
+
+人工修改：pending
+
+Git commit：pending
+
+最终结果：调度脚本可交付使用（C2-11 交付后摘要阶段自动生效）；验收脚本按用户指示移除，历史可经 git 追溯。
+
+AI_PROMPTS_PENDING：false
