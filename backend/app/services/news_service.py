@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.crawlers.base import RawArticle
+from app.exceptions import invalid_request
 from app.models import NewsArticle
 from app.news_categories import SIX_CATEGORIES, is_valid_category
 
@@ -49,11 +50,11 @@ class NewsService:
         首次写入返回新记录且 created=True。依赖数据库唯一约束兜底并发重复。
         """
         if not is_valid_category(raw.category):
-            raise ValueError(f"分类不在系统六类内：{raw.category}")
+            raise invalid_request(f"分类不在系统六类内：{raw.category}")
         if not raw.title.strip() or not raw.content.strip():
-            raise ValueError("新闻标题或正文不能为空")
+            raise invalid_request("新闻标题或正文不能为空")
         if not raw.source_url.strip():
-            raise ValueError("新闻来源 URL 不能为空")
+            raise invalid_request("新闻来源 URL 不能为空")
 
         content_hash = NewsService.content_sha256(raw.content)
         existing = db.scalar(
@@ -108,11 +109,11 @@ class NewsService:
         返回 (total, items)；items 为不含 content 的字典列表。
         """
         if page < 1:
-            raise ValueError("page 必须大于等于 1")
+            raise invalid_request("page 必须大于等于 1")
         if page_size < 1 or page_size > _MAX_PAGE_SIZE:
-            raise ValueError("page_size 必须在 1~50 之间")
+            raise invalid_request("page_size 必须在 1~50 之间")
         if category is not None and not is_valid_category(category):
-            raise ValueError(f"分类不在系统六类内：{category}")
+            raise invalid_request(f"分类不在系统六类内：{category}")
 
         filters = [NewsArticle.category == category] if category else []
         total = db.scalar(select(func.count()).select_from(NewsArticle).where(*filters)) or 0
