@@ -1,5 +1,27 @@
 # 基于自然语言处理的新闻文章自动摘要系统设计与实现
 
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Python: 3.11](https://img.shields.io/badge/Python-3.11-blue.svg)
+![MySQL: 8.x](https://img.shields.io/badge/MySQL-8.x-orange.svg)
+![HarmonyOS: 5](https://img.shields.io/badge/Client-HarmonyOS%205-green.svg)
+![Stage: 1+2 基建完成](https://img.shields.io/badge/Stage-%E6%AE%A1%E6%94%AF%E5%A1%AB%E5%AE%9E-lightgrey.svg)
+
+## 目录
+
+- [项目简介](#项目简介)
+- [最终核心功能](#最终核心功能)
+- [技术栈](#技术栈)
+- [总体数据流](#总体数据流)
+- [五人职责概览](#五人职责概览)
+- [六阶段概览](#六阶段概览)
+- [快速开始](#快速开始)
+- [目录结构](#目录结构)
+- [文档阅读顺序](#文档阅读顺序)
+- [Windows 基础开发环境](#windows-基础开发环境)
+- [CNewSum 与模型目录](#cnewsum-与模型目录)
+- [硬性指标与当前阶段](#硬性指标与当前阶段)
+- [贡献与变更日志](#贡献与变更日志)
+
 ## 项目简介
 
 NewsSummarySystem 是一个终版课程项目：HarmonyOS 客户端通过 FastAPI 访问新闻、收藏、反馈和模型指标；后端以 MySQL 持久化真实新闻及摘要任务；在线摘要固定使用 BERT 句子语义表示、TextRank 关键句排序、Token Budget 与 Seq2Seq Transformer。CNewSum 是唯一正式训练和评价数据集。
@@ -39,17 +61,64 @@ NewsSummarySystem 是一个终版课程项目：HarmonyOS 客户端通过 FastAP
 
 阶段1冻结需求、架构、职责、数据库和接口；阶段2实现 CNewSum、正式模型与在线 AI；阶段3实现真实新闻业务、Worker 和后端业务 API；阶段4实现 HarmonyOS；阶段5端到端联调；阶段6测试、性能复核、实践文档、视频与提交。任务编号和验收见 [DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)。
 
-## 精简目录结构
+## 快速开始
+
+> 当前为阶段 1+2 基建完成 + 阶段 3 业务实现（角色 A 部分）状态；以下仅给出**最小复现**所需的命令，完整端到端由 [`scripts/run_e2e.ps1`](scripts/run_e2e.ps1) 一键驱动。
+
+```powershell
+# 1. 克隆仓库
+git clone https://github.com/<owner>/NewsSummarySystem.git
+cd NewsSummarySystem
+
+# 2. 后端虚拟环境与依赖
+cd backend
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+cd ..
+
+# 3. MySQL 8.x 起服务并创建数据库（用户名/密码与 backend/.env 一致）
+mysql -uroot -p -e "CREATE DATABASE news_summary CHARACTER SET utf8mb4;"
+
+# 4. 配置 backend/.env（不提交）
+# DATABASE_URL=mysql+pymysql://<user>:<pwd>@127.0.0.1:3306/news_summary?charset=utf8mb4
+
+# 5. 一次性端到端验证（自动灌种子 + 起 uvicorn + 9 项 REST 契约 + 32 项 pytest MySQL）
+powershell -ExecutionPolicy Bypass -File scripts\run_e2e.ps1
+```
+
+期望输出尾行：
+
+```text
+[7/7] summary :: ALL GREEN
+```
+
+完整系统运行条件、客户端导入、训练脚本等按 [WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md) 执行；模型训练与评价的硬性指标见 [硬性指标与当前阶段](#硬性指标与当前阶段)。
+
+## 目录结构
 
 ```text
 NewsSummarySystem/
-├── README.md
-├── docs/                         需求、架构、计划、API、数据库、AI记录
-├── backend/                      已冻结的后端骨架
-├── model_training/               已冻结的离线训练骨架
-├── frontend_harmony/             阶段4正式客户端位置
-├── sql/  scripts/                后续阶段使用的基础设施文件
-└── runtime/                      数据集、模型、缓存、日志，均不提交 Git
+├── README.md                    本文件（GitHub 入口）
+├── CHANGELOG.md                 阶段性变更日志
+├── CONTRIBUTING.md              5 人组贡献与 PR 流程
+├── LICENSE                      MIT 许可证
+├── VIBECODING_PROMPT.md         AI 编码硬性约束
+├── .gitignore                   Python / IDE / runtime 产物
+├── docs/                        需求、架构、计划、API、数据库、AI 记录
+│   ├── REQUIREMENTS.md
+│   ├── ARCHITECTURE.md
+│   ├── DEVELOPMENT_PLAN.md
+│   ├── API.md
+│   ├── DATABASE.md
+│   ├── AI_PROMPTS.md            AI 使用记录（共享权威源）
+│   ├── AI_PROMPTS_我的.md       AI 使用记录（个人归档副本）
+│   └── WINDOWS_SETUP.md
+├── backend/                     已冻结的后端骨架（FastAPI + SQLAlchemy）
+├── model_training/              已冻结的离线训练骨架
+├── frontend_harmony/            阶段4正式客户端位置
+├── sql/   scripts/              后续阶段使用的基础设施文件
+├── runtime/                     数据集、模型、缓存、日志，均不提交 Git
+└── .github/                     Issue 与 PR 模板（GitHub 自动识别）
 ```
 
 ## 文档阅读顺序
@@ -70,4 +139,12 @@ NewsSummarySystem/
 
 CNewSum test 上完整正式摘要流水线的 `corpus_rougeL` 必须不低于 0.40，且单样本 ROUGE-L 达标率 `quality_pass_rate` 必须不低于 0.95。模型加载、GPU 预热后，`SummaryPipeline.generate(article)` 在 batch_size=1 下单篇生成必须小于 1.5 秒；性能达标率 `latency_pass_rate` 必须不低于 0.95，且 `p95_generation_time_ms < 1500`。完整验收、候选排序和调参停止规则见 [DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)。
 
-当前仍为阶段1：仅完成文档、职责和接口冻结，未开始模型、爬虫、业务 API、Worker 或 HarmonyOS 正式开发。
+- **当前状态**：阶段 1 冻结（文档 / 职责 / 接口）已完成；阶段 2 模型与训练等待正式交付；阶段 3 角色 A 部分（UserService / ModelService / 5 个 API 路由 / 32 项 pytest）已落地并通过本机 MySQL 端到端 14/14 验证；其他角色的后续工作按 [DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) 推进。
+
+## 贡献与变更日志
+
+- 本项目为 5 人课程工程，协作流程、分支策略与 PR 规范见 [CONTRIBUTING.md](CONTRIBUTING.md)
+- AI 编码硬性约束见 [VIBECODING_PROMPT.md](VIBECODING_PROMPT.md)
+- 阶段性变更、里程碑、不可变改动记录见 [CHANGELOG.md](CHANGELOG.md)
+- AI 协助修改的逐次记录见 [docs/AI_PROMPTS.md](docs/AI_PROMPTS.md)；个人归档副本在 [docs/AI_PROMPTS_我的.md](docs/AI_PROMPTS_我的.md)
+- Issue / PR 模板位于 [`.github/`](.github/) 目录；提交缺陷时按 [bug_report.md](.github/ISSUE_TEMPLATE/bug_report.md) 模板填写

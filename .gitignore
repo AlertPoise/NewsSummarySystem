@@ -19,6 +19,18 @@ runtime/logs/*
 runtime/training_runs/*
 !runtime/training_runs/.gitkeep
 
+# E2E 端到端验证临时日志（run_e2e.ps1 写入，不入仓）
+runtime/*.log
+runtime/*.log.err
+runtime/pytest_e2e_*.txt
+runtime/e2e_*.log
+
+# 一次性诊断脚本产物（每次端到端重跑后临时生成）
+bom_check.txt
+parse_check.txt
+ps1_check.txt
+arr_check.txt
+
 # IDE 产物
 .idea/
 .vscode/
