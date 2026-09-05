@@ -1,14 +1,14 @@
-"""摘要反馈 REST 路由。
-
-A1-04 公共层规范：仅冻结路径、依赖与响应结构；阶段 3 由 A 实现首次 INSERT / 后续 UPDATE。
-"""
+"""摘要反馈 REST 路由（阶段 3 A3-04 实现）。"""
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
+from app.database import get_db
 from app.dependencies import require_client_id
 from app.schemas import ApiResponse, FeedbackRequest, FeedbackResponse
+from app.services.user_service import UserService
 
 router = APIRouter(tags=["反馈"])
 
@@ -21,7 +21,14 @@ def submit_feedback(
     news_id: int,
     body: FeedbackRequest,
     client_id: Annotated[str, Depends(require_client_id)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> ApiResponse[FeedbackResponse]:
-    """TODO(A3-04)：同一 client/news 首次 INSERT、后续 UPDATE；返回当前最新评价。"""
+    """A3-04 同一 (client_id, news_id) 首次 INSERT、后续 UPDATE；返回当前最新评价。"""
 
-    raise NotImplementedError("Phase 3 实现：UserService.upsert_feedback")
+    result = UserService.upsert_feedback(
+        db,
+        client_id=client_id,
+        news_id=news_id,
+        helpful=body.helpful,
+    )
+    return ApiResponse(data=result)
