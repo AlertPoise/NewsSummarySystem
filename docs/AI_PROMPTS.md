@@ -11,14 +11,23 @@
 使用工具：
 任务目的：
 完整Prompt：
+Prompt 类型：完整原文 / Prompt 概括
+会话/任务标识：
 涉及文件：
+AI 是否实际修改文件：true / false
 AI生成内容：
+自动执行范围：
 人工检查：
 人工修改：
+人工确认项：
+Git commit：pending / commit hash
 最终结果：
+AI_PROMPTS_PENDING：false
 ```
 
 每次使用 AI 协助修改项目时，责任人须在同一工作周期内按模板追加记录；记录必须列出真实涉及文件与人工检查结果。
+
+AI 修改任何仓库文件时必须同周期直接追加本文件；纯阅读、解释或只读检查无需记录。历史记录只追加，人工检查/修改/commit 未发生时填写 pending，禁止伪造。无法写入时使用 `AI_PROMPTS_PENDING=true`，任务不得称完全完成。/goal 必须持续记录重要修改节点；实验参数与结果仍放在 runtime/training_runs。
 
 若原始 Prompt 超过 500 字，`完整Prompt` 字段改为不超过 200 字的中文概括，并明确标注为“Prompt 概括”；概括必须覆盖任务目标、关键约束、允许范围和禁止事项，不得伪称原文。
 
@@ -107,3 +116,151 @@ AI生成内容：B 离线训练数据位置、模型 JSON 交付、实验运行�
 人工修改：待 A 验收补充。
 
 最终结果：完成 B 开发前契约整理，未开始模型训练或阶段2正式实现。
+
+## B 离线训练环境初始化记录
+
+日期：2026-09-05
+
+人员：B
+
+角色：离线训练与模型交付
+
+阶段：阶段2
+
+任务编号：B 阶段2环境初始化
+
+使用工具：Codex
+
+任务目的：为 B 创建独立、可重复的 Windows Python 3.11 离线训练环境初始化脚本。
+
+Prompt 概括（原始 Prompt 超过 500 字）：创建 B 的 requirements 和环境脚本；仅用清华 PyPI 镜像、检测 Python 3.11、复用根目录 .venv 并验证核心包/CUDA。禁止数据处理、下载模型、训练、评价、Benchmark、数据库和公共架构修改。
+
+涉及文件：model_training/requirements.txt、model_training/setup_env.ps1、docs/AI_PROMPTS.md。
+
+AI生成内容：B 独立依赖清单与幂等 PowerShell 初始化脚本；脚本强制当前进程及关键 pip 命令使用清华 PyPI 镜像，并检测 Python、虚拟环境、核心包、PyTorch CUDA 和可选 NVIDIA 信息。
+
+人工检查：连续两次执行脚本。系统未发现 `py -3.11`，`python --version` 为 3.13.2；脚本均在创建 .venv 和安装依赖前以退出码 1 停止。未进行数据处理、模型下载、训练、ROUGE 或 Benchmark。
+
+人工修改：待 B 验收补充。
+
+最终结果：环境初始化脚本已完成；因本机缺少 Python 3.11，尚未创建 .venv 或安装依赖。
+
+## B GPU 环境初始化完善记录
+
+日期：2026-09-05
+
+人员：B
+
+角色：离线训练与模型交付
+
+阶段：阶段2
+
+任务编号：B 阶段2环境初始化完善
+
+使用工具：Codex
+
+任务目的：拆分 PyTorch 安装并完善 NVIDIA/CUDA 检测、官方 wheel 选择与 GPU 验证逻辑。
+
+Prompt 概括（原始 Prompt 超过 500 字）：完善 B 环境脚本：Python 3.11、清华源普通依赖、NVIDIA/驱动/CUDA 检测、官方 PyTorch CUDA wheel 自动选择和实际 Tensor 验证；禁止训练、模型/数据处理及跨模块接口修改。
+
+涉及文件：model_training/requirements.txt、model_training/setup_env.ps1、docs/AI_PROMPTS.md。
+
+AI生成内容：从普通 requirements 移除 torch；脚本为 GPU 选择官方 cu126 wheel，支持 CPU fallback、Torch 幂等检查、完整 import、pip check 与 CUDA Tensor 验证。
+
+人工检查：PowerShell 语法检查通过；真实检测到 NVIDIA GeForce RTX 4080 Laptop GPU、驱动 560.81、驱动 CUDA Runtime 能力 12.6，未检测到 nvcc。实际执行在清华镜像 pip 升级连接被代理重置时停止，未到达 Torch 安装或 GPU Tensor 验证。
+
+人工修改：待 B 验收补充。
+
+最终结果：脚本逻辑已更新；普通依赖镜像连接阻塞，GPU 训练环境尚未完成。
+
+## B PyTorch 下载策略优化记录
+
+日期：2026-09-05
+
+人员：B
+
+角色：离线训练与模型交付
+
+阶段：阶段2
+
+任务编号：B 阶段2环境初始化优化
+
+使用工具：Codex
+
+任务目的：避免重复下载 PyTorch，并按官方稳定 CUDA wheel 矩阵自动选择最高兼容版本。
+
+Prompt 概括（原始 Prompt 超过 500 字）：优化 B 环境脚本：普通包继续清华源；Torch 仅用官方 wheel 源，正确 Torch 完全跳过下载，按已验证官方稳定 CUDA 矩阵选最高兼容 wheel；不训练或修改公共接口。
+
+涉及文件：model_training/setup_env.ps1、docs/AI_PROMPTS.md。
+
+AI生成内容：移除 Torch 强制重装；新增 cu132/cu130/cu126 官方稳定候选矩阵、按 nvidia-smi 驱动能力选择、官方源 Torch 的 `--no-deps` 安装策略。
+
+人工检查：静态检查 PowerShell 语法；未执行 pip 安装或下载。
+
+人工修改：待 B 验收补充。
+
+最终结果：完成下载源与依赖解析策略优化，环境实际安装状态未改变。
+
+## B 实验协议冻结记录
+
+日期：2026-09-05
+
+人员：A
+
+角色：B开发前公共文档维护
+
+阶段：阶段2前
+
+任务编号：B2-01～B2-09 协议冻结
+
+使用工具：Codex
+
+任务目的：冻结 B2-01～B2-09 的数据、评价、资源与实验规则。
+
+Prompt 概括（原始 Prompt 超过 500 字）：冻结 B2-01～B2-09 实验协议：真实 CNewSum split/字段、test isolation、官方 CNewSum ROUGE、最多3候选、10GB、CUDA/OOM、完整留痕；只改文档，不训练或实现。
+
+涉及文件：README.md、VIBECODING_PROMPT.md、docs/REQUIREMENTS.md、docs/ARCHITECTURE.md、docs/DEVELOPMENT_PLAN.md、docs/AI_PROMPTS.md。
+
+AI生成内容：补充数据基线、test 隔离、ROUGE 协议、候选/资源/CUDA/留痕与 B2-01～B2-09 验收规则。
+
+人工检查：仅修改允许文档；未读取或处理数据、下载模型、训练、ROUGE 或 Benchmark。
+
+人工修改：待 A 验收补充。
+
+最终结果：B 开发前实验协议文档冻结。
+
+## AI 审计约束强化记录
+
+日期：2026-09-05
+
+人员：A
+
+角色：项目架构与文档维护
+
+阶段：阶段1/阶段2开发前
+
+任务编号：A1-01
+
+使用工具：Codex
+
+任务目的：强化全员 AI 使用记录与工作区审计。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：强化全员 AI 使用记录；AI_PROMPTS 为共享审计例外，实际修改必须同步记录，未记录不得完成；新增轻量检查与 /goal 审计规则，不修改业务接口或 Schema。
+
+涉及文件：VIBECODING_PROMPT.md、docs/AI_PROMPTS.md、docs/DEVELOPMENT_PLAN.md、scripts/check_ai_prompt_record.py。
+
+AI 是否实际修改文件：true
+
+AI生成内容：硬性审计规则、共享追加边界和无第三方检查脚本。
+
+人工检查：pending
+
+人工修改：pending
+
+Git commit：pending
+
+最终结果：审计约束与检查脚本已建立。
+
+AI_PROMPTS_PENDING：false
