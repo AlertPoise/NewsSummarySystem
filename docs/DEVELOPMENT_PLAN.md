@@ -12,7 +12,7 @@
 | D | crawlers、新闻/摘要 Service、news API、worker | Schema、用户服务、训练、HarmonyOS | 虚构新闻、绕过 Pipeline |
 | E | frontend_harmony | Python、SQL、MySQL、训练 | 直连 MySQL/Python AI、硬编码指标 |
 
-所有 API、Schema、数据库与公共接口变更均遵循 ARCHITECTURE 的接口变更流程。所有代码注释/docstring 使用中文，字段和标识符使用英文。
+所有 API、Schema、数据库与公共接口变更均遵循 ARCHITECTURE 的接口变更流程。所有代码注释/docstring 使用中文，字段和标识符使用英文。`docs/AI_PROMPTS.md` 是全员共享审计追加例外：各角色仅可追加自身真实记录及其结果，不因此获得其他 docs 或公共契约修改权限；A 仍负责公共文档维护。
 
 ## 2. 阶段1：需求、架构、职责、接口冻结
 
@@ -28,6 +28,8 @@
 ## 3. 阶段2：CNewSum、正式模型与在线 AI
 
 ### B 任务
+
+**B2-01～B2-09 补充协议：**B2-01 核验本地文件、字段、编码、split 与重叠；B2-02 可复现标准化 id/article/summary 且保留来源；B2-03 仅统计 train/dev；B2-04 最多 3 个 train/dev-only smoke/pilot；B2-05 checkpoint/tokenizer 仅据 train/dev；B2-06 参数仅据统计、GPU、validation；B2-07 CUDA 正式微调并遵守 10GB、8小时及完整留痕；B2-08 用冻结 evaluator 在完整 dev validation；B2-09 导出唯一 Hugging Face 模型/Tokenizer，metadata 交付仍属 B2-12。第0轮 baseline 不计入最多10轮，所有调优只依据 train/dev；第10轮 validation 未形成候选时保存最佳真实结果并停止，不得查看 test。
 
 | 任务编号 | 负责人 | 任务名称/目标 | 允许修改 | 输入→输出 | 依赖/交付 | 实现要求与验收 |
 |---|---|---|---|---|---|---|

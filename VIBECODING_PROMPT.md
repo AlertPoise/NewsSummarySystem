@@ -100,6 +100,10 @@ B 可以主要修改：
 - `model_training/`
 - `runtime/datasets/`
 - `runtime/models/`
+- `runtime/training_runs/`
+- `runtime/hf_cache/`
+
+原始数据不得修改或提交；B 不得使 test 参与候选选择或调参。深入下载/pilot 候选最多 3 个，模型须有公开来源、model card、许可证及 revision；正式训练、失败、OOM 和中断均须留痕。不得无理由重建环境或重复安装大型依赖，也不得自动 push、force-push、merge 或 rebase；允许本地 status/diff 和阶段性 commit，跨角色修改仍须用户授权。
 
 ### C
 负责：
@@ -364,7 +368,7 @@ AI 应根据已有文档和角色边界自行完成职责范围内的工作。
 
 如果第 7 或第 8 项为“是”，必须说明是否得到用户授权。
 
-如本次使用 AI 对项目产生实际修改，应将真实使用记录补充到 `docs/AI_PROMPTS.md`，或给出可由组员人工追加的记录内容。若原始 Prompt 超过 500 字，记录时必须概括为不超过 200 字的中文摘要；摘要须保留任务目标、关键约束、允许范围和禁止事项，不得伪造为原文或遗漏会影响执行边界的限制。
+`docs/AI_PROMPTS.md` 是 A/B/C/D/E 全员共享的唯一审计追加例外。AI 对仓库有实际文件修改时，必须同一工作周期由 AI 直接追加真实记录，不得只提供人工追加文本。只读/无写权限等真实阻塞时须报告 `AI_PROMPTS_PENDING=true`、原因、待追加记录和状态，且不得称完全完成。非 A 角色只能追加自身记录，不能借此修改其他 docs 或他人历史记录。AI_PROMPTS 记录是完成条件；结束前必须运行 `python scripts/check_ai_prompt_record.py`，检查失败不得声明完成。原始 Prompt 超过 500 字时使用不超过 200 字概括。
 
 ---
 
