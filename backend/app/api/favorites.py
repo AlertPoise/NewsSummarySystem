@@ -1,14 +1,18 @@
-"""收藏相关 REST 路由。
+"""收藏相关 REST 路由（阶段 3 A3-01~03 实现）。
 
-A1-04 公共层规范：仅冻结路径、依赖与响应结构；阶段 3 由 A 实现幂等收藏逻辑。
+路由层只做：依赖注入 → 调 Service → 包成 ApiResponse。
+不允许在路由层写 SQL、调 AI、复制用户查询（DATABASE.md §6 + ARCHITECTURE.md §2）。
 """
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
+from app.database import get_db
 from app.dependencies import require_client_id
 from app.schemas import ApiResponse, FavoriteResponse, NewsListItem
+from app.services.user_service import UserService
 
 router = APIRouter(tags=["收藏"])
 
@@ -16,10 +20,12 @@ router = APIRouter(tags=["收藏"])
 @router.get("/favorites", response_model=ApiResponse[list[NewsListItem]])
 def list_favorites(
     client_id: Annotated[str, Depends(require_client_id)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> ApiResponse[list[NewsListItem]]:
-    """TODO(A3-03)：调用 UserService.list_favorites，仅返回该客户端的收藏记录。"""
+    """A3-03 仅返回该 client_id 的收藏；不返回 content（API.md §8）。"""
 
-    raise NotImplementedError("Phase 3 实现：UserService.list_favorites")
+    items = UserService.list_favorites(db, client_id=client_id)
+    return ApiResponse(data=items)
 
 
 @router.post(
@@ -29,10 +35,12 @@ def list_favorites(
 def add_favorite(
     news_id: int,
     client_id: Annotated[str, Depends(require_client_id)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> ApiResponse[FavoriteResponse]:
-    """TODO(A3-01)：幂等收藏；重复 POST 仍返回 is_favorite=true，记录不增加。"""
+    """A3-01 幂等收藏：重复 POST 仍 200 + is_favorite=True，记录不增加。"""
 
-    raise NotImplementedError("Phase 3 实现：UserService.add_favorite")
+    result = UserService.add_favorite(db, client_id=client_id, news_id=news_id)
+    return ApiResponse(data=result)
 
 
 @router.delete(
@@ -42,7 +50,9 @@ def add_favorite(
 def remove_favorite(
     news_id: int,
     client_id: Annotated[str, Depends(require_client_id)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> ApiResponse[FavoriteResponse]:
-    """TODO(A3-02)：幂等取消；无记录时仍返回 is_favorite=false。"""
+    """A3-02 幂等取消：无记录时仍 200 + is_favorite=False。"""
 
-    raise NotImplementedError("Phase 3 实现：UserService.remove_favorite")
+    result = UserService.remove_favorite(db, client_id=client_id, news_id=news_id)
+    return ApiResponse(data=result)
