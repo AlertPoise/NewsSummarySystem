@@ -264,3 +264,39 @@ Git commit：pending
 最终结果：审计约束与检查脚本已建立。
 
 AI_PROMPTS_PENDING：false
+
+---
+
+日期：2026-09-05
+
+人员：D
+
+角色：新闻采集/业务/Worker（D-PlutoAkane）
+
+阶段：阶段3
+
+任务编号：D3-11
+
+使用工具：ZCode
+
+任务目的：修复 SummaryService 与 DATABASE.md §8.3 的两处偏差——failed→pending 重试未清 summary_error；complete/fail 未做 CAS 条件更新与失败警告。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：经逐条审计确认 D3-11 偏差后，用户指示"进行修改"。要求按 DATABASE.md §8.3 实现 CAS 条件更新、CAS 失败记警告不覆盖、重试清空 summary_error，方法签名与对外行为不变。
+
+涉及文件：backend/app/services/summary_service.py、docs/AI_PROMPTS.md。
+
+AI 是否实际修改文件：true
+
+AI生成内容：request_summary/complete/fail 改为 CAS 条件 UPDATE（rowcount=0 记警告不写入）；重试路径清空 summary_error，并发竞争未收敛时抛 409/1003；补 logging 警告与中文 docstring。
+
+人工检查：pending
+
+人工修改：pending
+
+Git commit：pending
+
+最终结果：两处偏差已按冻结契约修复；pytest 31 用例、SQLite CAS 专项冒烟 7/7、真实 MySQL 重试路径冒烟通过，待人工验收与提交。
+
+AI_PROMPTS_PENDING：false
