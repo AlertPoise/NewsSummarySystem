@@ -1,0 +1,5 @@
+method_positional:
+  tokens_type=System.Management.Automation.Language.Token[]
+  errors_type=System.Management.Automation.Language.ParseError[]
+  errors_count=0
+  tokens_count=771
