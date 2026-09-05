@@ -15,6 +15,20 @@ from bs4 import BeautifulSoup, Tag
 # 正文段落常见的最小字数阈值，用于排除短链接、无意义碎片
 _MIN_PARAGRAPH_CHARS = 20
 
+# 图片说明特征：以“新华社发 / 新华社发（××摄）/ 新华社记者××摄 / 记者××摄”等结尾
+_CAPTION_END = re.compile(
+    r"(新华社发(?:（[^）]{0,20}摄）)?|中新社发"
+    r"|新华社记者[一-鿿·\s]{0,12}摄"
+    r"|(?:记者|通讯员)[一-鿿·\s]{0,8}摄)$"
+)
+# 图片说明特征：段中含“（…年…月…日摄 / 无人机照片 / 资料图…）”
+_CAPTION_MID = re.compile(r"（(?:20\d{2}年\d{1,2}月\d{1,2}日摄|无人机照片|资料图)[^）]*）")
+# 报纸来源行，如“《光明日报》（2026年09月05日 09版）”
+_NEWSPAPER_SOURCE = re.compile(
+    r"《[一-鿿]{2,12}(?:日报|时报|晚报|报)》?[（(]"
+    r"\s*20\d{2}年\d{1,2}月\d{1,2}日\s+\d+版\s*[)）]\s*$"
+)
+
 
 def _strip_block_noise(soup: BeautifulSoup) -> None:
     """原地移除对正文无意义的内容块。"""
@@ -57,19 +71,45 @@ def extract_paragraphs(html: str, container_selectors: list[str]) -> list[str]:
     paragraphs: list[str] = []
     for paragraph in container.find_all("p"):
         text = clean_web_text(paragraph.get_text(" ", strip=True))
-        if len(text) >= _MIN_PARAGRAPH_CHARS:
-            paragraphs.append(text)
-    return _dedupe_consecutive(paragraphs)
+        if len(text) < _MIN_PARAGRAPH_CHARS:
+            continue
+        if _is_photo_caption(text) or _is_newspaper_source(text):
+            continue
+        paragraphs.append(text)
+    return _dedupe_global(paragraphs)
 
 
-def _dedupe_consecutive(paragraphs: list[str]) -> list[str]:
-    """去掉连续重复的段落（新闻图集每张配图会重复同一句导语）。
+def _is_photo_caption(text: str) -> bool:
+    """判断段落是否为图片说明（图注）。
 
-    仅折叠相邻完全相同的段落，保留正文语序与语义；不处理语义级重复。
+    图注常以“新华社发/记者××摄”结尾，或含“（…日摄/无人机照片/资料图）”。
+    """
+    if _CAPTION_MID.search(text):
+        return True
+    if _CAPTION_END.search(text):
+        return True
+    # 末尾单独以“摄”或“摄）”收尾的短段，基本可判定为图注
+    if text.endswith(("摄", "摄）")) and count_chinese(text) <= 160:
+        return True
+    return False
+
+
+def _is_newspaper_source(text: str) -> bool:
+    """判断段落是否为报纸来源行（如《光明日报》（2026年09月05日 09版））。"""
+    return bool(_NEWSPAPER_SOURCE.search(text))
+
+
+def _dedupe_global(paragraphs: list[str]) -> list[str]:
+    """去掉内容完全相同的重复段落（含非相邻），保留首次出现的顺序。
+
+    新闻图集每张配图的说明文字一致，会出现相邻或非相邻的整段重复，
+    逐字去重不会破坏正文语序。
     """
     result: list[str] = []
+    seen: set[str] = set()
     for text in paragraphs:
-        if not result or text != result[-1]:
+        if text not in seen:
+            seen.add(text)
             result.append(text)
     return result
 
