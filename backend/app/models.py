@@ -2,8 +2,8 @@
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
-from sqlalchemy.dialects.mysql import CHAR, DECIMAL, MEDIUMTEXT
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.mysql import BIGINT, CHAR, DECIMAL, MEDIUMTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -19,7 +19,7 @@ class NewsArticle(Base):
         Index("ix_news_articles_summary_status", "summary_status"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger(unsigned=True), primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(MEDIUMTEXT, nullable=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -43,9 +43,9 @@ class Favorite(Base):
     __tablename__ = "favorites"
     __table_args__ = (UniqueConstraint("client_id", "news_id", name="uq_favorites_client_news"),)
 
-    id: Mapped[int] = mapped_column(BigInteger(unsigned=True), primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
     client_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    news_id: Mapped[int] = mapped_column(BigInteger(unsigned=True), ForeignKey("news_articles.id"), nullable=False)
+    news_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), ForeignKey("news_articles.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
@@ -55,9 +55,9 @@ class Feedback(Base):
     __tablename__ = "feedback"
     __table_args__ = (UniqueConstraint("client_id", "news_id", name="uq_feedback_client_news"),)
 
-    id: Mapped[int] = mapped_column(BigInteger(unsigned=True), primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
     client_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    news_id: Mapped[int] = mapped_column(BigInteger(unsigned=True), ForeignKey("news_articles.id"), nullable=False)
+    news_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), ForeignKey("news_articles.id"), nullable=False)
     helpful: Mapped[bool] = mapped_column(Boolean, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
@@ -68,7 +68,7 @@ class ModelEvaluation(Base):
 
     __tablename__ = "model_evaluations"
 
-    id: Mapped[int] = mapped_column(BigInteger(unsigned=True), primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
     model_version: Mapped[str] = mapped_column(String(64), nullable=False)
     model_name: Mapped[str] = mapped_column(String(255), nullable=False)
     dataset: Mapped[str] = mapped_column(String(64), nullable=False)
