@@ -43,11 +43,12 @@
 | NFR-03 | 使用 HarmonyOS ArkTS/ArkUI | E | 4/6 | 客户端可完成全部流程 |
 | NFR-04 | 使用 Hugging Face Transformers | B/C | 2 | 训练与在线加载可追溯 |
 | NFR-05 | CNewSum 唯一正式数据集 | B | 2/6 | 训练/评价记录均为 CNewSum |
-| NFR-06 | ROUGE-L ≥ 0.40 | B/C | 2/6 | 完整流水线 test 结果达标 |
-| NFR-07 | 单篇摘要 < 1.5 秒 | B/C | 2/6 | 预热后基准达标 |
+| NFR-06 | 正式总体质量 | B/C | 2/6 | CNewSum test 的完整正式 Pipeline `corpus_rougeL >= 0.40` |
+| NFR-07 | 正式性能 | B/C | 2/6 | 模型已加载、GPU 已预热、batch_size=1 时，从 `SummaryPipeline.generate(article)` 进入至最终 summary 字符串完成的 `p95_generation_time_ms < 1500`；不含下载、首次加载、新闻抓取、HTTP、MySQL 查询 |
 | NFR-08 | 后端不得在线训练 | B/C/D | 2/3 | 后端仅加载正式权重 |
 | NFR-09 | 数据集、权重、缓存不提交 Git | A/B/C | 1/6 | Git 检查通过 |
 | NFR-10 | 跨模块接口遵守冻结文档 | 全员 | 1-6 | 契约检查通过 |
 | NFR-11 | 注释和 docstring 使用中文 | 全员 | 1-6 | 代码审查通过 |
 | NFR-12 | API/数据库字段使用英文标识符 | 全员 | 1-6 | 文档与代码审查通过 |
-
+| NFR-13 | 质量达标率 | B/C | 2/6 | `quality_pass_rate = CNewSum test 中单样本 ROUGE-L >= 0.40 的数量 / 实际评价样本数量 >= 0.95` |
+| NFR-14 | 性能达标率 | B/C | 2/6 | `latency_pass_rate = 正式性能测试中 SummaryPipeline.generate(article) < 1500 ms 的数量 / 实际性能测试样本数量 >= 0.95` |

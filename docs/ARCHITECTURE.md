@@ -44,20 +44,39 @@ HarmonyOS [E] ← FastAPI Route [A/D] → SummaryService [D] → SQLAlchemy / My
 
 ## 4. 离线训练流与 B→C 模型交付
 
-B 使用 CNewSum 处理 train/validation/test，验证候选模型后确定唯一正式 checkpoint，以 PyTorch 和 Hugging Face Transformers 微调，在完整正式摘要流程的 CNewSum test 上完成 ROUGE 与性能评价。B 向 C 交付：
+B 只从 `runtime/datasets/` 读取 CNewSum；正式原始数据目录固定为 `runtime/datasets/CNewSum_v2/final/`。当前已发现 `dev.simple.label.jsonl`、`test.simple.anno.label.jsonl`、`test.simple.label.jsonl`、`test2017.simple.label.jsonl`、`test2018.simple.label.jsonl`、`train.simple.label.jsonl` 和 `LICENSE.md`，但其字段、编码及最终 train/validation/test 映射一律待 B2-01 根据真实格式和数据集说明验证，不得仅按文件名推定。数据集文件不得提交 Git。
 
-```text
-runtime/models/news_summarizer/
-正式模型元信息：
-model_name
-model_version
-tokenizer 信息
-max_input_tokens
-max_new_tokens
-generation_config
+唯一正式模型目录为 `runtime/models/news_summarizer/`。B 在真实实验确定唯一 checkpoint 后，必须在其中交付 Hugging Face 可直接加载的正式模型与 Tokenizer 文件，并且只能额外以 `runtime/models/news_summarizer/model_metadata.json` 作为 B→C 的统一模型元信息文件。本阶段只冻结契约，不创建虚假的模型、checkpoint 或元信息。
+
+`model_metadata.json` 必须是 JSON 对象，至少符合以下结构；真实模型名、版本和参数仅可由真实实验填写：
+
+```json
+{
+  "model_name": "...",
+  "model_version": "...",
+  "dataset": "CNewSum",
+  "tokenizer": {
+    "name_or_path": "..."
+  },
+  "max_input_tokens": 0,
+  "max_new_tokens": 0,
+  "generation_config": {}
+}
 ```
 
-B 的训练和 C 的在线推理必须使用同一 tokenizer、输入长度、生成长度、生成参数和 model_version。术语映射固定为：`max_source_length = max_input_tokens`、`max_target_length = max_new_tokens`；`SUMMARIZER_MAX_INPUT_TOKENS` 对应正式 `max_input_tokens`，`SUMMARIZER_MAX_NEW_TOKENS` 对应正式 `max_new_tokens`。阶段2由 B/C 统一现有配置和代码命名，不能由 C 自行缩短输入长度。
+`dataset` 固定为 `CNewSum`；`model_version` 必须与 `SummaryResult.model_version` 使用同一版本值；`generation_config` 必须为保存正式生成参数的 JSON 对象。C 的在线 Pipeline 必须读取并遵守该正式元信息，且不得自行改写 `max_input_tokens` 或 `max_new_tokens`。B 的训练 tokenizer 和 C 的在线 tokenizer 必须一致。术语映射固定为：`max_source_length = max_input_tokens`、`max_target_length = max_new_tokens`；`SUMMARIZER_MAX_INPUT_TOKENS` 对应正式 `max_input_tokens`，`SUMMARIZER_MAX_NEW_TOKENS` 对应正式 `max_new_tokens`。阶段2由 B/C 统一现有配置和代码命名，不能由 C 自行缩短输入长度。
+
+### B 实验记录、验收与依赖边界
+
+`runtime/training_runs/` 是 B 唯一正式实验运行记录目录。每个真实实验须使用可追溯、稳定的 `run_id` 子目录，并在其中保存 JSON 或 JSONL 运行记录；禁止使用 `final`、`final2`、`best_new`、`final_final` 等不可维护名称。每条运行记录至少包含 `run_id`、`timestamp`、`task`、`candidate_model`、`model_version`、`dataset`、`dataset_split`、`training_parameters`、`generation_parameters`、`sample_count`、`rouge1`、`rouge2`、`rougeL`、`quality_pass_rate`、`avg_generation_time_ms`、`p95_generation_time_ms`、`latency_pass_rate`、`status` 和 `notes`；某轮未进行的真实评价字段可缺省或为 null，禁止填写虚假结果。checkpoint、中间日志、生成结果和其他运行产物也只能保存在该运行目录或 `runtime/` 的正式模型目录，默认不得提交 Git。
+
+正式质量指标为完整正式 Pipeline 在 CNewSum test 上的 `corpus_rougeL >= 0.40`。`quality_pass_rate` 定义为 CNewSum test 中“单样本 ROUGE-L >= 0.40”的样本数除以实际评价样本数，必须 `>= 0.95`。正式性能测试在 Pipeline 已 load、GPU 已预热、batch_size=1 时，从 `SummaryPipeline.generate(article)` 方法进入至最终 summary 字符串完成计时；不包括模型下载、首次模型加载、新闻网络抓取、HTTP 或 MySQL 查询。`latency_pass_rate` 定义为生成时间 `< 1500 ms` 的性能测试样本数除以实际性能测试样本数，必须 `>= 0.95`；同时 `p95_generation_time_ms < 1500`。不得跳过 BERT、TextRank 或 Transformer，不得改为固定 Top-N 或裸 Seq2Seq benchmark。
+
+候选先通过全部硬门槛（`corpus_rougeL >= 0.40`、`quality_pass_rate >= 0.95`、`latency_pass_rate >= 0.95`、`p95_generation_time_ms < 1500`）才能排序。合格候选采用 `quality_score = clamp((corpus_rougeL - 0.40) / (1.00 - 0.40), 0, 1)`、`performance_score = clamp((1500 - p95_generation_time_ms) / 1500, 0, 1)`、`final_selection_score = 0.7 * quality_score + 0.3 * performance_score`，其中 `clamp(x, 0, 1)` 将数值限制在 `[0, 1]`。同分时依次选择更高 `corpus_rougeL`、更低 `p95_generation_time_ms`、更小或更稳定的模型；加权分数绝不能掩盖硬门槛失败。
+
+B 的参数调优最多 10 轮；第 0 轮可作为 baseline/candidate baseline，不计入这 10 轮。每一轮必须基于上一轮真实结果，修改有明确依据的一组训练或生成参数，完成该轮所需训练或评价，并记录参数变化、原因和真实结果；参数完全不变不得伪造为新轮次。若在第 10 轮前已满足全部硬门槛且继续调参收益极低，可提前结束。第 10 轮后仍不合格时，必须保存最佳真实结果、标记“未通过最终验收”并输出瓶颈分析，不得降低阈值或伪造成功，也不得改变数据集、BERT/TextRank 存在性或 SummaryPipeline 公共接口来制造成功。
+
+B 可独立完成 B2-01～B2-09、B2-12；B2-10 必须等待 C2-13 的完整正式 Pipeline 输出，B2-11 必须等待 C2-11 的 `SummaryPipeline.generate()`，B2-14 必须等待 C2-14 性能优化完成。C 尚未完成时，B 必须保存当前检查点和 `blocked_by`，继续不依赖 C 的工作；无独立工作时停在明确检查点，禁止用裸 Transformer 或裸 `model.generate()` 冒充最终结果。B 可以仅在 `model_training/` 范围按真实代码需要维护离线训练依赖（推荐 `model_training/requirements.txt`）；不得污染或重构 backend 依赖，不得预先添加无实际代码需要的包，也不得引入 Docker、Conda 或复杂环境管理框架。
 
 ## 5. 在线 AI 推理与 C→D 接口
 

@@ -16,6 +16,8 @@ runtime/hf_cache/*
 !runtime/hf_cache/.gitkeep
 runtime/logs/*
 !runtime/logs/.gitkeep
+runtime/training_runs/*
+!runtime/training_runs/.gitkeep
 
 # IDE 产物
 .idea/

@@ -31,7 +31,7 @@
 
 | 任务编号 | 负责人 | 任务名称/目标 | 允许修改 | 输入→输出 | 依赖/交付 | 实现要求与验收 |
 |---|---|---|---|---|---|---|
-| B2-01 | B | CNewSum原始数据检查 | model_training、datasets | 原始 CNewSum→检查报告 | 无→B2-02 | 确认字段、编码、划分；仅 CNewSum |
+| B2-01 | B | CNewSum原始数据检查 | model_training、datasets | `runtime/datasets/CNewSum_v2/final/` 原始 CNewSum→检查报告 | 无→B2-02 | 确认字段、编码、数据集说明和划分；仅 CNewSum；不得仅按文件名推定 train/validation/test |
 | B2-02 | B | CNewSum标准化 | model_training、datasets | 原始数据→id/article/summary | B2-01→B2-03/C | 可复现转换；样本字段完整 |
 | B2-03 | B | CNewSum统计分析 | model_training | 标准样本→长度/数量统计 | B2-02→B2-06 | 统计可支撑长度参数选择 |
 | B2-04 | B | 正式Seq2Seq模型候选验证 | model_training | 训练集/验证集→候选结果 | B2-02→B2-05 | 只记录真实实验，不伪造结果 |
@@ -39,12 +39,22 @@
 | B2-06 | B | 训练参数确定 | config、training | 统计/验证→正式参数 | B2-03/05→B2-07/C | 映射 max_input_tokens/max_new_tokens |
 | B2-07 | B | Transformer微调 | training、models | CNewSum/参数→正式权重 | B2-05/06→B2-08 | PyTorch+Transformers，离线训练 |
 | B2-08 | B | 验证集评价 | evaluate | 权重/validation→验证指标 | B2-07→B2-09 | 使用真实生成结果 |
-| B2-09 | B | 正式模型导出 | models | 验收模型→news_summarizer | B2-08→B2-12/C | 目录可由 C 只读加载 |
-| B2-10 | B | CNewSum test ROUGE评价 | evaluate | 完整流程/test→三项 ROUGE | B2-09/C2-13→B2-13/A | ROUGE-L≥0.40，非裸模型结果 |
-| B2-11 | B | 初始性能 Benchmark | benchmark | B2-09 正式模型与已预热完整 Pipeline→初始 avg_generation_time_ms、p95_generation_time_ms、性能瓶颈 | B2-09/C2-11→C2-14 | batch_size=1；从 generate 进入至最终摘要结束计时；不依赖 C2-14 |
-| B2-12 | B | 正式模型信息交付C | models、元信息 | 权重/配置→模型交付包 | B2-09→C2-09 | 含名称、版本、tokenizer、长度、generation_config |
+| B2-09 | B | 正式模型导出 | models | 验收模型→news_summarizer | B2-08→B2-12/C | 目录可由 C 只读加载；交付 Hugging Face 可加载模型与 Tokenizer，不创建假产物 |
+| B2-10 | B | CNewSum test ROUGE评价 | evaluate | 完整流程/test→三项 ROUGE、corpus_rougeL、quality_pass_rate | B2-09/C2-13→B2-13/A | 必须等 C2-13 的完整正式 Pipeline；`corpus_rougeL>=0.40`、`quality_pass_rate>=0.95`；非裸模型结果 |
+| B2-11 | B | 初始性能 Benchmark | benchmark | B2-09 正式模型与已预热完整 Pipeline→初始 avg_generation_time_ms、p95_generation_time_ms、latency_pass_rate、性能瓶颈 | B2-09/C2-11→C2-14 | 必须等 C2-11；batch_size=1；从 generate 进入至最终摘要结束计时；不依赖 C2-14 |
+| B2-12 | B | 正式模型信息交付C | models、元信息 | 权重/配置→模型交付包 | B2-09→C2-09 | `runtime/models/news_summarizer/model_metadata.json` 是唯一正式元信息；含名称、版本、CNewSum、tokenizer、长度、generation_config |
 | B2-13 | B | 模型评价结果交付A | 评价产物 | 最终 ROUGE 与最终性能结果→固定字段记录 | B2-10/B2-14→A3-06 | dataset=CNewSum、split=test，字段全量一致，不使用初始 Benchmark |
-| B2-14 | B | 最终性能 Benchmark | benchmark | C2-14 优化后的正式 Pipeline→最终 avg_generation_time_ms、p95_generation_time_ms、正式性能验收结果 | B2-11/C2-14→B2-13/A | batch_size=1、模型已加载、GPU 已预热；按冻结计时规则执行且单篇<1.5秒 |
+| B2-14 | B | 最终性能 Benchmark | benchmark | C2-14 优化后的正式 Pipeline→最终 avg_generation_time_ms、p95_generation_time_ms、latency_pass_rate、正式性能验收结果 | B2-11/C2-14→B2-13/A | 必须等 C2-14；batch_size=1、模型已加载、GPU 已预热；`latency_pass_rate>=0.95`、`p95_generation_time_ms<1500` |
+
+### B 自动实验、选择与阻塞规则
+
+所有 B 的真实训练、验证、ROUGE、Benchmark 和候选选择运行都必须记录到唯一目录 `runtime/training_runs/`；每个运行使用可追溯的 `run_id` 子目录及 JSON/JSONL 记录，字段和 Git 忽略规则以 `ARCHITECTURE.md` 为准。不得写入不存在的结果，不得使用 `final`、`final2`、`best_new` 或 `final_final` 等名称。
+
+最终候选先同时满足硬门槛：`corpus_rougeL >= 0.40`、`quality_pass_rate >= 0.95`、`latency_pass_rate >= 0.95`、`p95_generation_time_ms < 1500`。仅在此后按照 `quality_score = clamp((corpus_rougeL - 0.40) / 0.60, 0, 1)`、`performance_score = clamp((1500 - p95_generation_time_ms) / 1500, 0, 1)`、`final_selection_score = 0.7 * quality_score + 0.3 * performance_score` 排序；`clamp` 将数值限制在 `[0,1]`。同分时依次取更高 corpus_rougeL、更低 P95、再取更小或更稳定模型。无合格候选时不得以加权分数或降低验收线伪造正式模型。
+
+第 0 轮 baseline 不计入调参上限。此后每一轮必须根据上一轮真实结果，有依据地改变一组训练或生成参数、完成所需训练或评价并记录变化、原因和结果；参数完全不变不得形成新轮次。最多 10 轮；提前满足全部硬门槛且继续调参收益极低时可结束。第 10 轮仍失败时，保存最佳真实结果，标记“未通过最终验收”并输出瓶颈分析，不得继续无限搜索或伪造成功。
+
+B2-10、B2-11、B2-14 到达依赖点但 C 未完成时，B 保存当前检查点并在实验记录写入 `blocked_by`，继续可独立完成的 B 工作；没有独立任务时停在明确检查点。不得用裸 Transformer 或 `model.generate()` 冒充完整 Pipeline 的最终 ROUGE 或性能。B 可按实际代码需要在 `model_training/` 增加最小离线依赖文件；不得污染 backend、预装无需求包、引入 Docker/Conda 或复杂环境管理。
 
 ### C 任务
 

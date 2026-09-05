@@ -11,4 +11,4 @@ def test_ai_contract_is_frozen() -> None:
     assert callable(SummaryPipeline.generate)
 
 
-# TODO(C-阶段2)：补充文本清洗、中文分句、BERT、TextRank、Token Budget、异常处理与真实流水线单元测试；输入为 CNewSum 代表性样本，输出为可重复的 AI 验证结果，必须遵守 docs/TEST_PLAN.md。
+# TODO(C-阶段2)：补充文本清洗、中文分句、BERT、TextRank、Token Budget、异常处理与真实流水线单元测试；输入为 CNewSum 代表性样本，输出为可重复的 AI 验证结果，必须遵守 docs/ARCHITECTURE.md 与 docs/REQUIREMENTS.md。

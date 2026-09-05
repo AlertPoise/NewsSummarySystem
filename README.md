@@ -62,10 +62,12 @@ NewsSummarySystem/
 
 ## CNewSum 与模型目录
 
-`runtime/datasets/` 存放 CNewSum，`runtime/models/news_summarizer/` 存放唯一正式模型，`runtime/hf_cache/` 存放模型缓存，均不得提交 Git。后端不得在线训练。
+正式原始 CNewSum 目录固定为 `runtime/datasets/CNewSum_v2/final/`；当前发现的原始文件包括 `dev.simple.label.jsonl`、`test.simple.anno.label.jsonl`、`test.simple.label.jsonl`、`test2017.simple.label.jsonl`、`test2018.simple.label.jsonl`、`train.simple.label.jsonl` 和 `LICENSE.md`。这些文件的字段、编码及最终 train/validation/test 映射均待 B2-01 按真实数据格式和数据集说明验证，后续脚本只能从 `runtime/datasets/` 读取，数据集不得提交 Git。
+
+`runtime/models/news_summarizer/` 是唯一正式模型目录，最终包含可由 Hugging Face 直接加载的正式模型与 Tokenizer 文件，以及 B 交付给 C 的 `model_metadata.json`。该元信息契约、训练/在线参数一致性和 C 的读取责任以 [ARCHITECTURE.md](docs/ARCHITECTURE.md) 为准；本阶段不创建虚假的元信息或模型。`runtime/training_runs/` 是 B 唯一正式实验运行记录目录，保存可追溯的训练、验证、评价和性能运行记录；`runtime/hf_cache/` 存放模型缓存。上述运行时产物均不得提交 Git，后端不得在线训练。
 
 ## 硬性指标与当前阶段
 
-CNewSum test 上完整正式摘要流水线的 ROUGE-L 必须不低于 0.40；模型加载、GPU 预热后，`SummaryPipeline.generate(article)` 在 batch_size=1 下单篇生成必须小于 1.5 秒，并记录平均与 P95 耗时。
+CNewSum test 上完整正式摘要流水线的 `corpus_rougeL` 必须不低于 0.40，且单样本 ROUGE-L 达标率 `quality_pass_rate` 必须不低于 0.95。模型加载、GPU 预热后，`SummaryPipeline.generate(article)` 在 batch_size=1 下单篇生成必须小于 1.5 秒；性能达标率 `latency_pass_rate` 必须不低于 0.95，且 `p95_generation_time_ms < 1500`。完整验收、候选排序和调参停止规则见 [DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)。
 
 当前仍为阶段1：仅完成文档、职责和接口冻结，未开始模型、爬虫、业务 API、Worker 或 HarmonyOS 正式开发。

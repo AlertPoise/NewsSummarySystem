@@ -1,10 +1,5 @@
 # NewsSummarySystem Vibe Coding 统一约束 Prompt
 
-> 本文件用于约束所有组员使用 Codex、ChatGPT、DevEco Code 或其他 AI 进行开发。  
-> **它只规定开发底线、职责边界和公共接口，不规定具体开发阶段、任务顺序或工作节奏。**
->
-> 组员可以在自己职责范围内自主决定先做什么、做到什么程度、如何安排开发顺序。
-
 ## 1. 开始修改前先读取
 
 AI 在修改仓库前必须先阅读：
@@ -176,6 +171,7 @@ E 可以主要修改：
 B 最终向 C 提供：
 
 - `runtime/models/news_summarizer/`
+- `runtime/models/news_summarizer/model_metadata.json`（唯一正式元信息 JSON）
 - `model_name`
 - `model_version`
 - tokenizer 信息
@@ -183,7 +179,9 @@ B 最终向 C 提供：
 - `max_new_tokens`
 - `generation_config`
 
-C 必须使用已确认的正式模型参数，不得自行猜测或私自改成另一套。
+C 必须读取并使用已确认的正式模型参数，不得自行猜测或私自改成另一套。`model_metadata.json` 至少包含 `model_name`、`model_version`、固定值 `dataset: CNewSum`、`tokenizer.name_or_path`、`max_input_tokens`、`max_new_tokens` 和 JSON 对象 `generation_config`；`model_version` 必须与 `SummaryResult.model_version` 相同，训练和在线 tokenizer 必须一致。具体值只能由真实实验填写。
+
+B 的训练、验证、ROUGE、Benchmark 和候选选择记录固定存于 `runtime/training_runs/`，并以可追溯 run_id 保存真实参数、原因、结果和阻塞状态。正式候选必须先通过 `corpus_rougeL >= 0.40`、`quality_pass_rate >= 0.95`、`latency_pass_rate >= 0.95`、`p95_generation_time_ms < 1500` 四项硬门槛，才可按 `0.7 * quality_score + 0.3 * performance_score` 排序；完整定义见 `docs/ARCHITECTURE.md`。参数调优最多 10 轮（第 0 轮 baseline 不计入），不得伪造结果或以裸模型替代完整 Pipeline。
 
 ### C → D：AI 接口
 
@@ -366,7 +364,7 @@ AI 应根据已有文档和角色边界自行完成职责范围内的工作。
 
 如果第 7 或第 8 项为“是”，必须说明是否得到用户授权。
 
-如本次使用 AI 对项目产生实际修改，应将真实使用记录补充到 `docs/AI_PROMPTS.md`，或给出可由组员人工追加的记录内容。
+如本次使用 AI 对项目产生实际修改，应将真实使用记录补充到 `docs/AI_PROMPTS.md`，或给出可由组员人工追加的记录内容。若原始 Prompt 超过 500 字，记录时必须概括为不超过 200 字的中文摘要；摘要须保留任务目标、关键约束、允许范围和禁止事项，不得伪造为原文或遗漏会影响执行边界的限制。
 
 ---
 

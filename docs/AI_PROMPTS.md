@@ -20,6 +20,8 @@ AI生成内容：
 
 每次使用 AI 协助修改项目时，责任人须在同一工作周期内按模板追加记录；记录必须列出真实涉及文件与人工检查结果。
 
+若原始 Prompt 超过 500 字，`完整Prompt` 字段改为不超过 200 字的中文概括，并明确标注为“Prompt 概括”；概括必须覆盖任务目标、关键约束、允许范围和禁止事项，不得伪称原文。
+
 ## 初始化记录
 
 日期：2026-09-04
@@ -77,3 +79,31 @@ AI生成内容：重组现有 Markdown，删除已被吸收的三份文档，并
 人工修改：待 A 验收补充。
 
 最终结果：待本次阶段1维护验收。
+
+## B 开发前契约整理记录
+
+日期：2026-09-05
+
+人员：A
+
+角色：项目架构与文档维护
+
+阶段：阶段1（阶段2正式开发前）
+
+任务编号：A1-01
+
+使用工具：Codex
+
+任务目的：阶段2正式开发前，对 B 离线训练、自动实验、模型交付、指标、10轮调参和运行记录契约进行冻结。
+
+Prompt 概括（原始 Prompt 超过 500 字）：阶段2前冻结 B 的数据路径、模型 JSON、实验记录、验收/排序和10轮规则；只改文档、忽略规则和 TODO。禁止训练、数据处理、下载、ROUGE/Benchmark、业务实现及修改架构、接口、Schema、职责或阶段。
+
+涉及文件：README.md、VIBECODING_PROMPT.md、docs/REQUIREMENTS.md、docs/ARCHITECTURE.md、docs/DEVELOPMENT_PLAN.md、docs/AI_PROMPTS.md、.gitignore、model_training/config.yaml、model_training/prepare_cnewsum.py、model_training/train.py、model_training/evaluate.py、model_training/benchmark.py、backend 中仅含失效文档引用的 TODO 注释、runtime/training_runs/.gitkeep。
+
+AI生成内容：B 离线训练数据位置、模型 JSON 交付、实验运行记录、质量/性能验收、候选排序、10轮调参、B/C 依赖与训练依赖边界的文档契约；训练骨架和阶段占位注释仅更新引用/说明。
+
+人工检查：检查冻结架构和公共接口未改变；确认没有读取或处理数据集内容、没有训练、下载、ROUGE、Benchmark 或阶段2实现；检查死链接、Git 忽略、路径和文档字段一致性。
+
+人工修改：待 A 验收补充。
+
+最终结果：完成 B 开发前契约整理，未开始模型训练或阶段2正式实现。
