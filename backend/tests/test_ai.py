@@ -170,3 +170,70 @@ class TestInputLengthLimit:
         result = pipeline.generate("这是一篇正常长度的新闻。")
         assert result.summary == "生成的摘要。"
         assert result.generation_time_ms >= 0
+
+
+class TestFactualGate:
+    """硬事实校验门：摘要含源文不存在的硬事实时拒绝交付。"""
+
+    def _make_pipeline(
+        self, monkeypatch: pytest.MonkeyPatch, fake_tokens: int, fake_summary: str
+    ) -> SummaryPipeline:
+        """构造已 load 的 Pipeline：BERT 桩 + 定制摘要的 Transformer 桩。"""
+        import numpy as np
+
+        class FakeBert:
+            def __init__(self, **kwargs: object) -> None:
+                self.is_loaded = True
+
+            def load(self) -> None:
+                self.is_loaded = True
+
+            def count_tokens(self, text: str) -> int:
+                return fake_tokens
+
+            def encode_batch(self, sentences: list[str]) -> list[object]:
+                return [np.zeros(4) for _ in sentences]
+
+        class FakeSummarizer:
+            model_version = "test-v0"
+            metadata = {
+                "model_name": "dummy",
+                "model_version": "test-v0",
+                "dataset": "CNewSum",
+                "max_input_tokens": 512,
+                "max_new_tokens": 60,
+            }
+
+            def __init__(self, model_dir: object) -> None:
+                pass
+
+            def load(self) -> None:
+                pass
+
+            def generate(self, text: str) -> str:
+                return fake_summary
+
+        monkeypatch.setattr("app.ai.pipeline.BertEncoder", FakeBert)
+        monkeypatch.setattr("app.ai.pipeline.TransformerSummarizer", FakeSummarizer)
+        pipeline = SummaryPipeline(max_input_tokens=512)
+        pipeline.load()
+        return pipeline
+
+    def test_hallucinated_time_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """摘要含源文不存在的"上半年"应被拒绝交付。"""
+        pipeline = self._make_pipeline(monkeypatch, fake_tokens=50, fake_summary="上半年经济增长4.5%。")
+        news = "8月份经济数据发布，增长4.5%。"
+        with pytest.raises(AiUnavailableError) as exc:
+            pipeline.generate(news)
+        assert "硬事实校验未通过" in str(exc.value)
+
+    def test_consistent_summary_passes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """摘要硬事实与源文一致时正常返回。"""
+        pipeline = self._make_pipeline(monkeypatch, fake_tokens=50, fake_summary="8月经济增长4.5%。")
+        news = "8月份经济数据发布，增长4.5%。"
+        result = pipeline.generate(news)
+        assert result.summary == "8月经济增长4.5%。"

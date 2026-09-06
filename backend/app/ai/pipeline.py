@@ -164,4 +164,14 @@ class SummaryPipeline:
         if not summary:
             raise AiUnavailableError("正式摘要模型输出为空，无法生成摘要。")
         # 8. 输出规范化：修复模型输出的排版问题（空格/标点/百分号格式），不改事实
-        return normalize_summary(summary)
+        normalized = normalize_summary(summary)
+        # 9. 硬事实一致性检查：摘要中的硬事实(百分比/时间/年份)须能在源文找到依据。
+        #    检出失真(如源文"8月"被写成"上半年"、"4.5%"写成"超4成")视为本次生成不可可靠交付。
+        from app.ai.postprocess import check_factual_consistency
+
+        violations = check_factual_consistency(normalized, cleaned)
+        if violations:
+            raise AiUnavailableError(
+                f"摘要硬事实校验未通过，不交付：{'；'.join(violations)}"
+            )
+        return normalized
