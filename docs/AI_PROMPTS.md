@@ -336,3 +336,39 @@ Git commit：C 分支 1a1a9f4（GPU 修复）、589a066（超长预检）、314d
 最终结果：C2-09/11/14 完成——正式 T5 模型真实端到端生成通过，性能预热后 608ms（P95 720ms）全面达标；质量指标（ROUGE-L≥0.40）需 B 用 CNewSum test 与参考摘要联合评价（B2-10）。
 
 AI_PROMPTS_PENDING：false
+
+## C 摘要输出质量控制（normalize + 硬事实校验门）记录
+
+日期：2026-09-06
+
+人员：C
+
+角色：NLP 预处理 / BERT / TextRank / Token Budget / SummaryPipeline / AI 测试
+
+阶段：阶段2（C 新增任务：在线摘要生成质量修复）
+
+任务编号：C2-11/12（质量控制扩展）
+
+使用工具：Claude Code
+
+任务目的：B 决定沿用正式模型 cnewsum-mengzi-t5-base-v1（不重新训练）后，C 在在线 pipeline 内部修复模型输出质量：中文排版不规范、硬事实幻觉（"上半年"）、数值失真（4.5%→超4成）。约束：不改公共接口/DB/API/Worker/模型权重/正式 generation 参数/512 输入规则；最终摘要仍由正式 Transformer 生成。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：以组员 C 身份修复在线摘要质量。允许修改 backend/app/ai/ 与 AI 测试；冻结接口 SummaryResult/SummaryPipeline、DB Schema、API、Worker、B 模型权重与 generation 参数、512 输入规则均不可改。实现四层：①中文规范化；②硬事实一致性检查；③多候选生成；④内容覆盖 rerank。测试覆盖 normalization、factual、rerank、接口回归。需真实样例验收（输出候选/factual/coverage/最终摘要/耗时），性能重测仍 ≥95%<1500ms、p95<1500ms。不伪造结果，beam=2 候选无差异或幻觉不可修时如实指出。
+
+涉及文件：backend/app/ai/postprocess.py（新增）、backend/app/ai/pipeline.py（接入 normalize+factual 门）、backend/tests/test_postprocess.py（新增）、backend/tests/test_ai.py（幻觉拦截测试）。
+
+AI 是否实际修改文件：true
+
+AI生成内容：① normalize_summary：修复模型输出排版——"4 . 5 %"→"4.5%"、中文字符间多余空格删除、英文逗号/冒号/句点→中文标点，不改事实文本。② check_factual_consistency：source-grounded 硬事实校验（百分比/数字/年月/季度/上半年下半年），percent 做数值兼容比对（相对差<15%），能识别"超4成"=40% 与源文 4.5% 不符、识别源文无"上半年"等。③ 定位"上半年"幻觉根因：模型能忠实跟随输入时间词（8月→8月），但经济类长文本生成时倾向套用训练数据里的"上半年/统计局"模板；且数值保持差（4.5%→超4成/超4%）。根因在 B 训练数据，C 无法自动修复成源文用词。④ 实验验证 beam=2 下 num_return_sequences=2 的两候选几乎相同（只差空格），多候选 rerank 无实际收益，故第3/4层不做无效工程。⑤ pipeline 接入 normalize 与硬事实校验门：检出幻觉（如"上半年"无源文依据）抛 AiUnavailableError（含具体违规），不交付含幻觉摘要；正常摘要通过，实测 3 篇真实新闻无误报。⑥ 测试：postprocess 15、幻觉拦截 2，AI 相关共 52+ 全绿。
+
+人工检查：冻结接口未改；未改模型权重/正式 generation 参数/512 输入规则；normalize 不改事实文本；factual 保守不误报（真实 3 篇通过）；幻觉样例被正确拦截；beam=2 无候选差异已如实记录不硬做 rerank；测试全绿。
+
+人工修改：pending
+
+Git commit：C 分支 760e2d6（normalize+factual 首版）、2aa3acc（factual 加强数值失真）、6015e4b（pipeline 接入硬事实校验门）
+
+最终结果：C 侧质量控制完成——格式规范化修复输出排版，硬事实校验门拦截"上半年"等幻觉与数值失真（宁缺毋滥不交付错误摘要）。"上半年"幻觉根因在 B 训练数据分布，C 已如实指出并限制为检测+拒绝；多候选 rerank 因 beam=2 候选无差异而搁置（如实记录）。
+
+AI_PROMPTS_PENDING：false
