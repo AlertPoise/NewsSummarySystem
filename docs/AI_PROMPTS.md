@@ -264,3 +264,115 @@ Git commit：pending
 最终结果：审计约束与检查脚本已建立。
 
 AI_PROMPTS_PENDING：false
+
+## A 阶段3 业务实现记录
+
+日期：2026-09-05
+
+人员：A
+
+角色：项目架构与文档维护（业务 API 与后端集成）
+
+阶段：阶段3
+
+任务编号：A3-01 / A3-02 / A3-03 / A3-04 / A3-05 / A3-06
+
+使用工具：WorkBuddy（CC 编程助手）
+
+任务目的：实现 A 职责范围内的收藏、反馈、模型指标后端业务：含 Service 静态方法、5 个 API 路由去 NotImplementedError、SQLAlchemy 2.x 双 dialect 让 SQLite 测试与 MySQL 生产共用、conftest 双引擎 fixture、配套 pytest 用例、幂等种子 SQL，以及阶段签字清单更新。
+
+完整Prompt：
+```
+A（推荐）实现 A3-01~06 + 配套单测
+```
+后续多轮短指令补完：SQLAlchemy 双 dialect 写法、conftest 双引擎 fixture 设计、test_api/test_database 重写、seed SQL 幂等与字段、API 契约逐字段对齐。
+
+Prompt 类型：Prompt 概括
+
+会话/任务标识：pending
+
+涉及文件：backend/app/services/user_service.py、backend/app/services/model_service.py、backend/app/api/favorites.py、backend/app/api/feedback.py、backend/app/api/model.py、backend/app/models.py、backend/app/dependencies.py、backend/app/exceptions.py、backend/app/schemas.py、backend/tests/conftest.py、backend/tests/test_api.py、backend/tests/test_database.py、sql/seed_test_data.sql、docs/ROLE_A_CHECKLIST.md
+
+AI 是否实际修改文件：true
+
+AI生成内容：UserService 三个静态方法 + upsert_feedback + get_news_user_state；ModelService.get_latest_metrics；5 个 API 路由去掉 NotImplementedError 并按 {code,message,data} 包装；models.py 双 dialect（MYSQL_BIGINT unsigned / SQLITE_INTEGER）；conftest 双引擎 fixture；test_api 15 用例 + test_database 12 用例；seed_test_data.sql 幂等；ROLE_A_CHECKLIST 签字栏。
+
+自动执行范围：仅生成/修改上述 backend/、sql/ 与 docs/ 文件；未改动公共契约路径与字段。
+
+人工检查：cd backend && pytest tests -v 32/32 全绿（SQLite 内存）；逐字段对照 docs/API.md 与 docs/DATABASE.md；公共契约未私自改动。
+
+人工修改：回归实际表名 favorites/feedback（去 AI 幻觉的 user_ 前缀）；rouge DECIMAL 强制转 float；conftest fixture 顺序与事务边界显式 commit+回滚。
+
+人工确认项：A3-07 等 TODO 按角色格式落实；等待真 MySQL 端到端验证。
+
+Git commit：2e1c478（feat(A) 前缀，含阶段3+E2E+GitHub文档，未 push）
+
+最终结果：阶段3 业务实现完整，pytest 32 项 SQLite 全绿。
+
+AI_PROMPTS_PENDING：false
+
+## A E2E 端到端验证记录
+
+日期：2026-09-05
+
+人员：A
+
+角色：项目架构与文档维护（真 MySQL 集成验收）
+
+阶段：阶段3 收尾（衔接阶段5）
+
+任务编号：A3-08（自拟：集成验收）
+
+使用工具：WorkBuddy（CC 编程助手）
+
+任务目的：在本机 MySQL 8.0.45 上跑端到端验证——一条命令覆盖 DB 连接探测、库创建、幂等灌种子、起 uvicorn、9 项 REST 路由契约、pytest 32 项切真 MySQL、收尾 verdict 汇总，期望所有阶段 ALL GREEN。
+
+完整Prompt：
+```
+真 MySQL 端到端验证
+```
+后续 7 轮贴 Clipboard_Screenshot.png 逐轮定位 PS 5.1 / pytest / API 契约踩坑。
+
+Prompt 类型：Prompt 概括
+
+会话/任务标识：pending
+
+涉及文件：scripts/run_e2e.ps1（约 502 行）、backend/conftest.py（12 行注释锚点）、sql/seed_test_data.sql（DELETE 顺序倒序）、docs/ROLE_A_CHECKLIST.md
+
+AI 是否实际修改文件：true
+
+AI生成内容：7 阶段 ps1 骨架（conn→create_db→seed→uvicorn→route.contracts→pytest.mysql→summary）；Hit 函数内消化错误返回 hash；Add-Verdict 带诊断上下文；seed 接收 stdout/stderr；pytest 文件重定向 + array splatting。
+
+自动执行范围：ps1 自动跑 mysql/uvicorn/pytest；未改动业务代码与公共契约。
+
+人工检查：本机多轮重跑 run_e2e.ps1，7 轮贴报错截图定位修复，最终 14/14 ALL GREEN；踩坑落 memory/2026-09-05.md 可追溯。
+
+人工修改（7 轮 18 修摘要）：
+| # | 踩坑 | 修法 |
+|---|---|---|
+| 1 | $Host/$Pwd 只读变量同名冲突 | 参数加 P_ 前缀 |
+| 2 | 数组字面量 '='+$dbCharset 被拆分 | 先赋 $charsetArg |
+| 3 | 表名 AI 幻觉加 user_ 前缀 | 改回 favorites/feedback |
+| 4 | ErrorActionPreference=Stop + Hit catch 二次抛错中断 | Hit 内消化 hash |
+| 5 | missing_header 期望 422 实际 400 | 期望改 400（pytest 权威） |
+| 6 | IWR GetResponseStream 4xx 拿空 | 读 ErrorDetails.Message |
+| 7 | here-string 反引号续行 news_id 怪值 | 单变量双引号 here-string |
+| 8 | Stop 让 pytest stderr 触发 NativeCommandError | 改 SilentlyContinue |
+| 9 | pytest 2>&1 traceback 被吞 | 文件重定向 1> 2> |
+| 10 | ModuleNotFoundError app（rootdir 错） | 新建 backend/conftest.py 锚点 + --rootdir |
+| 11 | favorite_list 断言 data.items.Count 实际数组 | 改 data.Count |
+| 12 | seed 重跑 FK 1451 | 子表先 DELETE |
+| 13 | > 重定向 UTF-16 BOM | 顶部三连 encoding utf8 |
+| 14 | ps1 与 bash 跑 pytest 结果不同 | dump cmd+DATABASE_URL |
+| 15 | Select-Object -Last 1 脆弱 | 正则+3级 fallback |
+| 16 | '1>' '2>' 单引号当字符串参数 | 裸 token 1> 2> |
+| 17 | runtime/ 缺失 Join-Path 不建 | New-Item -Force |
+| 18 | call operator+拼接+Windows 路径 collected 0 | array splatting @pytestArgs |
+
+人工确认项：A3-07/A5/A6 待续；真 MySQL 验证通过但仓库未 push（C 暂未拿到 models.py 双 dialect 修复）。
+
+Git commit：2e1c478（feat(A) 前缀，未 push）
+
+最终结果：run_e2e.ps1 14/14 ALL GREEN，约 502 行，0 解析错；18 条踩坑已落 memory 复用。
+
+AI_PROMPTS_PENDING：false
