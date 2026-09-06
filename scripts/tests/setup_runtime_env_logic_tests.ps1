@@ -10,6 +10,28 @@ Assert-Equal $capture.ExitCode 7 'native stderr non-zero exit is captured'
 Assert-Equal $ErrorActionPreference $before 'ErrorActionPreference restored after native capture'
 
 $seed=(Get-Command python -ErrorAction Stop).Source
+$testLog=Join-Path ([IO.Path]::GetTempPath()) ('NewsSummarySystem-runtime-stream-' + [guid]::NewGuid().ToString('N') + '.log')
+try{
+    $logFile=$testLog
+    # Run in a separate process so the parent can prove that the log changes while
+    # the native action is still running, rather than only after it exits.
+    $streamCode="import time; print('tick-0'); time.sleep(2); print('tick-1'); time.sleep(2); print('tick-2')"
+    $job=Start-Job -ScriptBlock { param($setup,$log,$python,$code); . $setup -SkipMain; $logFile=$log; Run 'streaming test action' $python @('-u','-c',$code) } -ArgumentList $script,$testLog,$seed,$streamCode
+    Start-Sleep -Milliseconds 1200
+    Assert-Equal $job.State 'Running' 'long native action remains running during stream check'
+    Assert-Equal ((Get-Content -LiteralPath $testLog -Raw) -match 'tick-0') $true 'first stdout line reaches log before action exits'
+    Receive-Job -Job $job -Wait -AutoRemoveJob | Out-Null
+
+    Run 'stderr success test' $seed @('-u','-c',"import sys; print('stderr-success', file=sys.stderr)")
+    Assert-Equal ((Get-Content -LiteralPath $testLog -Raw) -match 'stderr-success') $true 'stderr with exit 0 is streamed and logged'
+    try{Run 'stderr failure test' $seed @('-u','-c',"import sys; print('stderr-failure', file=sys.stderr); raise SystemExit(1)");throw 'Run accepted stderr plus exit 1'}catch{if($_.Exception.Message -notmatch 'exit code 1'){throw};Write-Host 'PASS - stderr plus exit 1 remains fatal' -ForegroundColor Green}
+    Assert-Equal ((Get-Content -LiteralPath $testLog -Raw) -match 'stderr-failure') $true 'stderr with exit 1 is streamed and logged'
+    Assert-Equal $ErrorActionPreference $before 'ErrorActionPreference restored after streaming actions'
+}finally{
+    if($job){Remove-Job -Job $job -Force -ErrorAction SilentlyContinue}
+    if(Test-Path -LiteralPath $testLog){Remove-Item -LiteralPath $testLog -Force}
+}
+
 $testVenv=Join-Path ([IO.Path]::GetTempPath()) ('NewsSummarySystem-runtime-test-' + [guid]::NewGuid().ToString('N'))
 try{
     $venvCreate=Invoke-NativeCommandCapture $seed @('-m','venv',$testVenv)
@@ -39,6 +61,3 @@ $script:fakeResult=[PSCustomObject]@{ExitCode=0;Output="2.14.0+cu126`n12.6"}
 $torch=Get-Torch 'fake-python'
 Assert-Equal $torch.Version '2.14.0+cu126' 'compatible torch version is parsed'
 Assert-Equal $torch.Cuda '12.6' 'compatible torch CUDA runtime is parsed'
-
-$script:fakeResult=[PSCustomObject]@{ExitCode=9;Output='simulated pip failure'}
-try{Run 'simulated pip install' 'fake-python' @('-m','pip','install','broken');throw 'Run accepted a failed action'}catch{if($_.Exception.Message -notmatch 'exit code 9'){throw};Write-Host 'PASS - failed action remains fatal' -ForegroundColor Green}
