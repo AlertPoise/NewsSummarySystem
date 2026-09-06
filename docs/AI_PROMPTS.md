@@ -336,3 +336,81 @@ Git commit：pending
 最终结果：调度脚本可交付使用（C2-11 交付后摘要阶段自动生效）；验收脚本按用户指示移除，历史可经 git 追溯。
 
 AI_PROMPTS_PENDING：false
+
+---
+
+日期：2026-09-06
+
+人员：D
+
+角色：新闻采集/业务/Worker（D-PlutoAkane）
+
+阶段：阶段3 维护
+
+任务编号：D3-12（补记）
+
+使用工具：ZCode
+
+任务目的：修复超长文章死循环 bug——C 的 Pipeline 对超 max_input_tokens 文章抛 InputTooLongError，被 Worker 通用 except 标 failed 后经 request_summary 重置回 pending，形成 failed→pending 永久重试循环。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：用户报告超限文章 failed→pending→failed 死循环，要求把"确定性永久不可处理"与临时失败区分开，最小改动，不破坏 SummaryPipeline.generate() 与状态机公共接口；对超 512 token 文章删除或标记处理，防止进入下一步，按更容易实现的方案执行。
+
+涉及文件：backend/app/exceptions.py、backend/app/ai/pipeline.py、backend/app/services/summary_service.py、backend/app/worker.py、docs/DATABASE.md、backend/tests/test_worker.py、docs/AI_PROMPTS.md。
+
+AI 是否实际修改文件：true
+
+AI生成内容：新增 InputTooLongError 契约异常（exceptions.py 定义、pipeline.py 再导出）；SummaryService.delete_unprocessable 删除外键依赖行与新闻行（CAS 仅 processing）；worker 摘要循环单列 InputTooLongError 分支计入 deleted；DATABASE.md §8.4 补规则；新增 6 项用例。
+
+人工检查：待人工验收；其中 pipeline.py（C 负责文件）与 exceptions.py（公共层文件）为跨角色修改，已在执行后报告，待用户/C 追认异常落点。
+
+人工修改：pending
+
+人工确认项：跨角色修改是否追认。
+
+Git commit：c63cfb4
+
+最终结果：38 项 pytest 全通过；真实库暂无数据变化（流水线未交付，阶段B跳过）；已提示用户 43/72 篇正文超 512 字符，建议与 C 确认 Token Budget 契约。本条为补记，原工作周期遗漏追加。
+
+AI_PROMPTS_PENDING：false
+
+---
+
+日期：2026-09-06
+
+人员：D
+
+角色：新闻采集/业务/Worker（D-PlutoAkane）
+
+阶段：阶段6
+
+任务编号：D6-01、D6-02
+
+使用工具：ZCode
+
+任务目的：补齐阶段6测试缺口——D6-01 Crawler 测试（提取、去噪、映射、去重四维）；D6-02 的 SKIP LOCKED 多 Worker 并发维度（真实 MySQL）。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：用户引用审计结论（D6-01 未完成、D6-02 并发维度缺失），确认可开始后要求完成这两个测试任务。约束：只新增测试文件与追加本记录，不改既有源码与公共接口。
+
+涉及文件：backend/tests/test_crawlers.py（新增）、backend/tests/test_concurrency_mysql.py（新增）、docs/AI_PROMPTS.md。
+
+AI 是否实际修改文件：true
+
+AI生成内容：20 项 crawler 用例（内嵌 HTML 夹具 + monkeypatch 隔离网络，覆盖提取/去噪/图注剔除/标题链/六类映射/结构一致/SHA-256 去重与校验拒绝）；5 项并发用例（FOR UPDATE SKIP LOCKED 跳过被锁行确定性验证、4 线程×24 条恰一次领取、仅领 pending、CAS 重置单胜者与幂等、processing 不被重置），连真实 MySQL 但建独立 {db_name}_e2e 库（应用用户建库失败时按本机免密 root 约定引导，TEST_MYSQL_ROOT_PASSWORD 可覆盖，用例始终以 news_app 身份运行），结束后删库，真实业务库只读不碰。
+
+自动执行范围：本地 pytest 运行、e2e 库建删；未 push。
+
+人工检查：pending
+
+人工修改：pending
+
+人工确认项：无。
+
+Git commit：pending
+
+最终结果：全套 pytest 63/63 通过（58 SQLite + 5 MySQL 并发）；真实库 news_summary 数据原样（72 篇），e2e 库已自动删除。遗留：§9 要求的 scripts/check_ai_prompt_record.py 在仓库中不存在，无法执行该检查，已报告待 A 补齐。
+
+AI_PROMPTS_PENDING：false
