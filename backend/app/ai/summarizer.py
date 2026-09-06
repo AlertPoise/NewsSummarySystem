@@ -29,6 +29,7 @@ class TransformerSummarizer:
         """
         self.model_dir = Path(model_dir)
         self.model_version = ""
+        self.device = "cpu"
         self._tokenizer: Any = None
         self._model: Any = None
         self._metadata: dict[str, Any] = {}
@@ -77,11 +78,19 @@ class TransformerSummarizer:
         self._load_transformers()
 
     def _load_transformers(self) -> None:
-        """使用 Hugging Face Transformers 加载 Seq2Seq 模型与 tokenizer。"""
+        """使用 Hugging Face Transformers 加载 Seq2Seq 模型与 tokenizer。
+
+        模型自动放置到 CUDA GPU（可用时），与 BertEncoder 的设备策略一致；
+        无 GPU 则退回 CPU。
+        """
+        import torch
         from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self._tokenizer = AutoTokenizer.from_pretrained(str(self.model_dir))
         self._model = AutoModelForSeq2SeqLM.from_pretrained(str(self.model_dir))
+        self._model.to(self.device)
+        self._model.eval()
         self._loaded = True
 
     def generate(self, selected_text: str) -> str:
