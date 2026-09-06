@@ -1,0 +1,27 @@
+# B2-SHORT512：仅用于 token_count < 512 短文本域的独立正式实验。
+dataset:
+  name: CNewSum
+  directory: ../runtime/datasets/CNewSum_v2/processed
+  train_file: train.jsonl
+  validation_file: dev.jsonl
+  train_manifest: runtime/datasets/derived/cnewsum_train_lt512_manifest/b2-analysis-20260906T032942Z-lt512-stats/train_lt512_ids.jsonl
+  validation_manifest: runtime/datasets/derived/cnewsum_train_lt512_manifest/b2-analysis-20260906T032942Z-lt512-stats/dev_lt512_ids.jsonl
+model:
+  checkpoint: Langboat/mengzi-t5-base
+  revision: 6616a21ba6f42867e2c14ef4c84ef44e22af3248
+training:
+  seed: 42
+  num_train_epochs: 1
+  learning_rate: 2.0e-5
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
+  max_source_length: 512
+  max_target_length: 80
+  precision: fp32
+  optimizer: AdamW
+evaluation:
+  evaluator: cnewsum_mlrouge_compatible_v1
+  num_beams: 2
+  max_new_tokens: 80
+  length_penalty: 1.0
+  early_stopping: true
