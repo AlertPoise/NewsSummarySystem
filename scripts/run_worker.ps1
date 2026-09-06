@@ -19,12 +19,23 @@ $ErrorActionPreference = "Stop"
 # worker 输出中文，控制台按 UTF-8 解码避免乱码
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$BackendDirectory = (Resolve-Path (Join-Path $PSScriptRoot "..\backend")).Path
-# 必须使用项目虚拟环境解释器：依赖安装于 backend/.venv，
-# 裸 python 会命中系统环境导致 ImportError
-$Python = Join-Path $BackendDirectory ".venv\Scripts\python.exe"
-if (-not (Test-Path $Python)) {
-    Write-Error "未找到后端虚拟环境解释器：$Python（请先按 README 完成后端环境初始化）"
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+# 必须使用项目统一虚拟环境解释器，裸 python 会命中系统环境导致 ImportError。
+# 正式环境由 scripts/setup_runtime_env.ps1 创建于仓库根 <repo>\.venv；
+# 过渡期兼容历史 backend\.venv（全局环境同步完成前允许回退）。
+$PythonCandidates = @(
+    (Join-Path $RepoRoot ".venv\Scripts\python.exe"),
+    (Join-Path $RepoRoot "backend\.venv\Scripts\python.exe")
+)
+$Python = $PythonCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $Python) {
+    Write-Error "未找到统一运行环境解释器（候选：$($PythonCandidates -join '；')）。请先运行 scripts\setup_runtime_env.ps1 初始化根目录 .venv"
+    exit 1
+}
+
+$BackendDirectory = Join-Path $RepoRoot "backend"
+if (-not (Test-Path $BackendDirectory)) {
+    Write-Error "未找到后端目录：$BackendDirectory"
     exit 1
 }
 

@@ -130,12 +130,19 @@ def run_summary_phase(db, pipeline, batch_limit: int = 50) -> dict[str, int]:
             break
         except InputTooLongError as exc:
             dependents = SummaryService.delete_unprocessable(db, article.id)
-            stats["deleted"] += 1
-            print(
-                f"[worker] 文章 id={article.id} 正文超过 max_input_tokens（{exc}），"
-                f"确定性不可摘要，已删除该新闻及 {dependents} 条关联收藏/反馈。",
-                flush=True,
-            )
+            if dependents >= 0:
+                stats["deleted"] += 1
+                print(
+                    f"[worker] 文章 id={article.id} 正文超过 max_input_tokens（{exc}），"
+                    f"确定性不可摘要，已删除该新闻及 {dependents} 条关联收藏/反馈。",
+                    flush=True,
+                )
+            else:
+                # CAS 失败：事务已回滚，新闻保持 processing，待 stale 自检或下轮处理
+                print(
+                    f"[worker] 文章 id={article.id} 删除 CAS 失败（事务已回滚），本轮跳过。",
+                    flush=True,
+                )
             continue
         except Exception as exc:
             SummaryService.fail(db, article.id, str(exc)[:500])

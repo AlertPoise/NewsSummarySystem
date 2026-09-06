@@ -127,8 +127,31 @@ def test_mixed_batch_classification(db_session: Session) -> None:
 def test_delete_unprocessable_cas_guard(db_session: Session) -> None:
     """delete_unprocessable 仅对 processing 行生效，其他状态不删除。"""
     pending_row = _add_article(db_session, title="还在pending", content="正文")
-    assert SummaryService.delete_unprocessable(db_session, pending_row.id) == 0
+    assert SummaryService.delete_unprocessable(db_session, pending_row.id) == -1
     assert db_session.get(NewsArticle, pending_row.id) is not None
+
+
+def test_delete_unprocessable_cas_failure_preserves_dependents(
+    db_session: Session,
+) -> None:
+    """CAS 失败必须整事务回滚：新闻与收藏/反馈全部原样保留。
+
+    回归 DATABASE.md §6 硬性要求——禁止"子表已删、新闻仍在"的半删除状态。
+    """
+    row = _add_article(db_session, title="非processing带依赖", content="正文")
+    now = datetime(2026, 9, 6, 11, 0, 0)
+    db_session.add(Favorite(client_id="c2", news_id=row.id, created_at=now))
+    db_session.add(
+        Feedback(client_id="c2", news_id=row.id, helpful=False, created_at=now, updated_at=now)
+    )
+    db_session.commit()
+
+    result = SummaryService.delete_unprocessable(db_session, row.id)
+
+    assert result == -1
+    assert db_session.get(NewsArticle, row.id) is not None
+    assert db_session.scalars(select(Favorite).where(Favorite.news_id == row.id)).all() != []
+    assert db_session.scalars(select(Feedback).where(Feedback.news_id == row.id)).all() != []
 
 
 @pytest.mark.parametrize("status", ["processing"])

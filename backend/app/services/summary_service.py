@@ -173,32 +173,44 @@ class SummaryService:
 
     @staticmethod
     def delete_unprocessable(db: "Session", news_id: int) -> int:
-        """永久删除确定性不可摘要的新闻（如正文超过 max_input_tokens）。
+        """永久删除确定性不可摘要的新闻（正文超过 max_input_tokens）。
 
         冻结状态机（DATABASE.md §8.1 固定四态 + CHECK 约束）没有"永久跳过"
         终态：标 failed 会被 request_summary 重置回 pending 形成永久重试循环，
-        标 completed 属于伪造摘要，因此唯一不破坏状态机的处理是删除该新闻。
-        favorites/feedback 对 news_articles 为 RESTRICT 外键，必须先删依赖行
-        再删新闻行。仅当行仍处于 processing（Worker 刚领取）时执行删除，CAS
-        失败记录警告且不删（processing 只会由持有它的 Worker 自身迁移，此
-        分支仅作并发防御）。返回删除的收藏/反馈条数。
+        标 completed 属于伪造摘要，因此唯一不破坏状态机的处理是按 §6 范围外
+        例外条款删除该新闻。favorites/feedback 对 news_articles 为 RESTRICT
+        外键，必须先删依赖行再删新闻行。
+
+        事务原子性（§6 写入顺序硬性要求）：三步 DELETE 在同一事务内执行，
+        新闻主记录 CAS 删除（仅 processing）失败或任一步数据库异常时整事务
+        回滚，禁止留下"子表已删、新闻仍在"的半删除状态。
+
+        返回删除的收藏/反馈条数；CAS 失败返回 -1（事务已回滚，依赖行原样
+        保留，调用方不应计入 deleted 统计）。
         """
-        dependents = db.execute(
-            delete(Favorite).where(Favorite.news_id == news_id)
-        ).rowcount
-        dependents += db.execute(
-            delete(Feedback).where(Feedback.news_id == news_id)
-        ).rowcount
-        result = db.execute(
-            delete(NewsArticle).where(
-                NewsArticle.id == news_id,
-                NewsArticle.summary_status == PROCESSING,
+        try:
+            dependents = db.execute(
+                delete(Favorite).where(Favorite.news_id == news_id)
+            ).rowcount
+            dependents += db.execute(
+                delete(Feedback).where(Feedback.news_id == news_id)
+            ).rowcount
+            result = db.execute(
+                delete(NewsArticle).where(
+                    NewsArticle.id == news_id,
+                    NewsArticle.summary_status == PROCESSING,
+                )
             )
-        )
-        db.commit()
-        if result.rowcount != 1:
-            logger.warning(
-                "删除不可摘要新闻 CAS 失败：news_id=%s 已不处于 processing，跳过删除",
-                news_id,
-            )
+            if result.rowcount != 1:
+                db.rollback()
+                logger.warning(
+                    "删除不可摘要新闻 CAS 失败：news_id=%s 已不处于 processing，"
+                    "整事务已回滚，依赖行原样保留",
+                    news_id,
+                )
+                return -1
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
         return dependents

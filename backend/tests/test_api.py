@@ -333,3 +333,40 @@ def test_get_model_metrics_returns_latest_only(
     response = client.get("/api/model/metrics")
     assert response.status_code == 200
     assert response.json()["data"]["model_version"] == "v1.0.0"
+
+# ---------- D3-10/D3-13 新闻详情与摘要触发（D 维护） ----------
+
+
+def test_news_detail_returns_full_fields(client: TestClient, sample_news) -> None:  # noqa: ANN001
+    """详情返回正文与来源字段，用户状态经 UserService 复用（无 header 时默认值）。"""
+    response = client.get(f"/api/news/{sample_news.id}")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["id"] == sample_news.id
+    assert data["title"] == sample_news.title
+    assert data["content"] == sample_news.content
+    assert data["summary_status"] == "pending"
+    assert data["is_favorite"] is False
+    assert data["feedback"] is None
+
+
+def test_news_detail_not_found_returns_404_code_1002(client: TestClient) -> None:
+    """不存在的 news_id 返回 HTTP 404 / 业务码 1002（API.md §6）。"""
+    response = client.get("/api/news/999999")
+    assert response.status_code == 404
+    assert response.json()["code"] == 1002
+
+
+def test_news_path_params_reject_non_positive_with_422(client: TestClient) -> None:
+    """Path 校验错误为 HTTP 422：news_id 必须 > 0（API.md §6 冻结契约）。"""
+    assert client.get("/api/news/-1").status_code == 422
+    assert client.get("/api/news/0").status_code == 422
+    assert client.post("/api/news/-1/summary").status_code == 422
+    assert client.post("/api/news/0/summary").status_code == 422
+
+
+def test_summary_trigger_returns_202_for_pending(client: TestClient, sample_news) -> None:  # noqa: ANN001
+    """pending 新闻的摘要触发返回 202 且状态保持 pending，不创建推理工作。"""
+    response = client.post(f"/api/news/{sample_news.id}/summary")
+    assert response.status_code == 202
+    assert response.json()["data"]["summary_status"] == "pending"

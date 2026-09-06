@@ -7,7 +7,7 @@ Worker 是唯一正式 AI 调用者。X-Client-ID 经 dependencies.parse_client_
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Path, Query, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -46,7 +46,7 @@ def list_news(
 
 @router.get("/news/{news_id}", response_model=ApiResponse[NewsDetail])
 def get_news_detail(
-    news_id: int,
+    news_id: Annotated[int, Path(gt=0, description="新闻 id，必须大于 0（非法值 422）")],
     db: Annotated[Session, Depends(get_db)],
     client_id: Annotated[str | None, Depends(parse_client_id)] = None,
 ) -> ApiResponse[NewsDetail]:
@@ -62,7 +62,7 @@ def get_news_detail(
     response_model=ApiResponse[SummaryStatusData],
 )
 def trigger_summary(
-    news_id: int,
+    news_id: Annotated[int, Path(gt=0, description="新闻 id，必须大于 0（非法值 422）")],
     db: Annotated[Session, Depends(get_db)],
     response: Response,
 ) -> ApiResponse[SummaryStatusData]:

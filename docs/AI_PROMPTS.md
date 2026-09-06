@@ -543,3 +543,41 @@ Git commit：本次提交（仅新闻 token 长度范围相关文档）。
 最终结果：已完成文档一致性检查，等待人工审查。
 
 AI_PROMPTS_PENDING：false
+
+---
+
+日期：2026-09-06
+
+人员：D
+
+角色：新闻采集/业务/Worker（D-PlutoAkane）
+
+阶段：阶段3 维护（merge readiness）
+
+任务编号：D3-11/D3-12/D3-13 维护 + D6-02 补强
+
+使用工具：ZCode
+
+任务目的：按外部审查核实并修复 merge blocker——同步最新 main；delete_unprocessable 原子事务；run_worker.ps1 与根 .venv 统一；news_id Path(gt=0) 422 契约；恢复 AI_PROMPTS_我的.md。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：用户提供外部审查报告（指出落后 main 需同步、delete_unprocessable 在父记录 CAS 失败时仍 commit 导致"子表已删新闻仍在"、run_worker.ps1 找 backend/.venv 与新 setup_runtime_env.ps1 的根 .venv 冲突、news_id 缺 Path(gt=0) 422、AI_PROMPTS_我的.md 被误删），要求仔细检查是否有严重 bug 并修复。
+
+涉及文件：backend/app/services/summary_service.py、backend/app/worker.py、backend/app/api/news.py、backend/tests/test_worker.py、backend/tests/test_api.py、scripts/run_worker.ps1、docs/DATABASE.md（合并）、docs/AI_PROMPTS.md、docs/AI_PROMPTS_我的.md（恢复）。
+
+AI 是否实际修改文件：true
+
+AI生成内容：逐项核实后合并 origin/main（e86cdd0，无冲突）；delete_unprocessable 改为单事务三步 DELETE、CAS 失败或异常整事务 rollback 并返回 -1，worker 据实打印且不计 deleted 统计；新增"CAS 失败依赖行原样保留"回归测试（旧实现下必失败）；news.py 两路由加 Annotated[int, Path(gt=0)] 并补 4 项 API 契约测试（详情字段/404/422×4/202）；run_worker.ps1 根 .venv 优先、backend\.venv 过渡回退，真实冒烟通过。
+
+自动执行范围：本地 pytest、run_worker.ps1 冒烟；未 push。
+
+人工检查：pending
+
+人工修改：pending
+
+人工确认项：stale processing 自动恢复与 main DATABASE.md §8.4"不强制超时重置"的表述差异，建议 A 修订文档保留代码；A 的 favorites/feedback 三路由同样缺 Path(gt=0)，属 A 文件待 A 处理。
+
+Git commit：pending
+
+最终结果：全套 pytest 68/68 通过（63 SQLite 侧 + 5 MySQL 并发）；main 7ea7d0c 已将 InputTooLongError 契约与 delete_unprocessable 事务要求冻结进文档，此前跨角色待追认项闭环。AI_PROMPTS_PENDING：false
