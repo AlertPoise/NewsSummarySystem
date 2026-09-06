@@ -359,3 +359,37 @@ Git commit：pending
 最终结果：待完成提交与远程推送验证。
 
 AI_PROMPTS_PENDING：false
+
+## 新闻 token 长度范围文档冻结
+
+日期：2026-09-06
+
+人员：A
+
+角色：项目文档维护
+
+任务编号：文档范围冻结（未变更任务编号或任务表）
+
+使用工具：Codex
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：仅更新新闻正文 token 长度限制相关文档：使用正式 Seq2Seq/T5 tokenizer 未截断计数不超过 512 tokens；超长由 Pipeline 抛 InputTooLongError，Worker 事务删除。不得修改实现、训练、数据库结构、任务表或其他角色需求。
+
+涉及文件：README.md、VIBECODING_PROMPT.md、docs/REQUIREMENTS.md、docs/ARCHITECTURE.md、docs/API.md、docs/DATABASE.md、docs/AI_PROMPTS.md。
+
+AI 是否实际修改文件：true
+
+AI生成内容：统一长度判定、禁止 silent truncation、超长内部删除事务、既有 404 语义，以及 eligible test subset 的统计口径；未调整角色任务、阶段依赖、验收门槛或性能指标。
+
+自动执行范围：仅上述 Markdown 文档；未修改 Python、PowerShell、SQL、数据库、模型或训练产物。
+
+人工检查：pending。
+
+人工修改：pending。
+
+Git commit：本次提交（仅新闻 token 长度范围相关文档）。
+
+最终结果：已完成文档一致性检查，等待人工审查。
+
+AI_PROMPTS_PENDING：false

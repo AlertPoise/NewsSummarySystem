@@ -26,12 +26,14 @@
 
 NewsSummarySystem 是一个终版课程项目：HarmonyOS 客户端通过 FastAPI 访问新闻、收藏、反馈和模型指标；后端以 MySQL 持久化真实新闻及摘要任务；在线摘要固定使用 BERT 句子语义表示、TextRank 关键句排序、Token Budget 与 Seq2Seq Transformer。CNewSum 是唯一正式训练和评价数据集。
 
+**正式适用范围**：本系统只面向经正式摘要模型的 Seq2Seq/T5 tokenizer 编码后、正文长度不超过 512 tokens 的中文新闻。超过该长度的文章是项目范围外数据；它们在采集后的业务处理链中由正式 Pipeline 确认后过滤/删除，不是模型故障，也不要求截断后生成摘要。
+
 ## 最终核心功能
 
 - 两个真实新闻来源的采集、正文提取、网页噪声清理、六类分类映射、SHA-256 去重和 MySQL 持久化。
 - 新闻分类展示、分页、刷新、详情、全文、AI 摘要、收藏、摘要反馈与模型信息展示。
 - 完整正式摘要路径：清洗、中文分句、BERT、余弦相似度、TextRank/PageRank、Token Budget、原文顺序恢复、Seq2Seq Transformer。
-- CNewSum test 的 ROUGE-1、ROUGE-2、ROUGE-L 与完整流水线性能评价。
+- CNewSum eligible test subset 的 ROUGE-1、ROUGE-2、ROUGE-L 与完整流水线性能评价；full test 只保留为诊断。
 
 ## 技术栈
 
@@ -137,7 +139,7 @@ NewsSummarySystem/
 
 ## 硬性指标与当前阶段
 
-CNewSum test 上完整正式摘要流水线的 `corpus_rougeL` 必须不低于 0.40，且单样本 ROUGE-L 达标率 `quality_pass_rate` 必须不低于 0.95。模型加载、GPU 预热后，`SummaryPipeline.generate(article)` 在 batch_size=1 下单篇生成必须小于 1.5 秒；性能达标率 `latency_pass_rate` 必须不低于 0.95，且 `p95_generation_time_ms < 1500`。完整验收、候选排序和调参停止规则见 [DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)。
+CNewSum **eligible test subset**（正式 tokenizer、`add_special_tokens=true`、`truncation=false` 下 article token_count `<=512`）上完整正式摘要流水线的 `corpus_rougeL` 必须不低于 0.40，且单样本 ROUGE-L 达标率 `quality_pass_rate` 必须不低于 0.95。模型加载、GPU 预热后，`SummaryPipeline.generate(article)` 在 batch_size=1 下单篇生成必须小于 1.5 秒；性能达标率 `latency_pass_rate` 必须不低于 0.95，且 `p95_generation_time_ms < 1500`。超过 512 tokens 的 test 样本必须报告 excluded 数量和比例，但不计入正式质量、时延或模型失败。完整验收、候选排序和调参停止规则见 [DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)。
 
 - **当前状态**：阶段 1 冻结（文档 / 职责 / 接口）已完成；阶段 2 模型与训练等待正式交付；阶段 3 角色 A 部分（UserService / ModelService / 5 个 API 路由 / 32 项 pytest）已落地并通过本机 MySQL 端到端 14/14 验证；其他角色的后续工作按 [DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) 推进。
 

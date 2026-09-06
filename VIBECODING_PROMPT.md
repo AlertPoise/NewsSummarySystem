@@ -37,6 +37,7 @@ AI 在修改仓库前必须先阅读：
   `文本清洗 → 中文分句 → BERT → 余弦相似度 → TextRank/PageRank → Token Budget → 恢复原文顺序 → Seq2Seq Transformer → 最终摘要`
 - 正式摘要通过 `SummaryPipeline` 对业务层提供
 - Worker 是正式系统中唯一调用 `SummaryPipeline.generate(article)` 的业务组件
+- 正式服务范围固定为：使用 B 交付的 Seq2Seq/T5 tokenizer、`add_special_tokens=true`、`truncation=false` 编码后 `token_count <= max_input_tokens=512` 的正文；不得以字符数、BERT tokenizer 或估算长度替代
 - 至少两个真实新闻来源
 - 系统分类固定为：科技、财经、社会、体育、国内、国际
 - 用户状态通过 `X-Client-ID`（UUID v4）区分
@@ -54,6 +55,7 @@ AI 在修改仓库前必须先阅读：
 - 引入 Redis、Kafka、Celery、Docker、Kubernetes、微服务、JWT 等未冻结技术
 - 增加推荐、评论、登录等与课程目标无关的系统
 - 为“工程化”目的增加不必要的复杂层级
+- 对超过 512 tokens 的原始正文进行 silent truncation 后宣称摘要成功；该输入必须由 Pipeline 视为范围外并通过 `InputTooLongError` 交给 Worker 删除
 
 ---
 

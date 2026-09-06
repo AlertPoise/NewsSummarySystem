@@ -61,7 +61,7 @@
 {"code":0,"message":"ok","data":{"id":123,"title":"标题","content":"新闻正文","summary":"最终摘要","category":"科技","source":"来源","source_url":"https://example.invalid/news/123","publish_time":"2026-09-04T10:00:00","summary_status":"completed","summary_time_ms":860,"is_favorite":true,"feedback":true}}
 ```
 
-`id/title/content/category/source/source_url/summary_status/is_favorite` 非空；`summary`、`publish_time`、`summary_time_ms`、`feedback` 可空。无 X-Client-ID 时固定 `is_favorite=false`、`feedback=null`。news_id 不存在为 HTTP 404/1002；header 格式错误为 HTTP 400/1001；Path 校验错误为 422；查询失败为 500/1005。只读幂等，D 必须通过 `UserService.get_news_user_state` 获取用户状态。
+`id/title/content/category/source/source_url/summary_status/is_favorite` 非空；`summary`、`publish_time`、`summary_time_ms`、`feedback` 可空。无 X-Client-ID 时固定 `is_favorite=false`、`feedback=null`。news_id 不存在为 HTTP 404/1002；这同样适用于被 Worker 因 InputTooLongError 删除的范围外新闻，不新增公开错误码或暴露内部异常。header 格式错误为 HTTP 400/1001；Path 校验错误为 422；查询失败为 500/1005。只读幂等，D 必须通过 `UserService.get_news_user_state` 获取用户状态。
 
 ## 7. 摘要任务：POST /api/news/{news_id}/summary
 
@@ -79,7 +79,7 @@ processing、pending 及 failed 重置为 pending 时均返回 HTTP 202：
 {"code":0,"message":"ok","data":{"news_id":123,"summary_status":"pending","summary":null,"generation_time_ms":null}}
 ```
 
-该接口不在 HTTP 线程调用 Transformer；Worker 是唯一正式 AI 调用者。对同一新闻并发请求不得重复创建摘要工作：已 processing 返回 processing；pending 只确认 pending；failed 原子重置 pending。news_id 不存在为 404/1002；无法原子变更状态为 409/1003；正式 AI 系统不可用为 503/1004；内部失败为 500/1005。
+该接口不在 HTTP 线程调用 Transformer；Worker 是唯一正式 AI 调用者。对同一新闻并发请求不得重复创建摘要工作：已 processing 返回 processing；pending 只确认 pending；failed 原子重置 pending。news_id 不存在为 404/1002；这同样适用于已因 InputTooLongError 被 Worker 删除的范围外新闻。InputTooLongError 是 Worker 内部范围处理结果，不作为新的 HTTP 类型暴露。无法原子变更状态为 409/1003；正式 AI 系统不可用为 503/1004；内部失败为 500/1005。
 
 ## 8. 收藏列表：GET /api/favorites
 
