@@ -1,0 +1,3 @@
+# Define project specific obfuscation rules here.
+# 项目混淆规则说明：默认不开启额外规则，发布包开启混淆时按需补充。
+# 若混淆导致 JSON 字段名被改写，必须保留 model 层字段（与 REST 契约一致），禁止修改 API 契约。

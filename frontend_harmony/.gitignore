@@ -1,0 +1,10 @@
+# DevEco Studio 工程本地产物（根 .gitignore 已覆盖 .hvigor/ 与 build/，这里补全其余本地目录）
+/node_modules
+/oh_modules
+/.hvigor
+/build
+/.idea
+/.test
+/.cxx
+/local.properties
+**/build/

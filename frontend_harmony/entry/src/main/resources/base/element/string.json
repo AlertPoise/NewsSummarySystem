@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "新闻摘要系统客户端入口模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "新闻摘要系统主界面"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "新闻摘要系统"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "modelVersion": "5.0.0",
+  "description": "基于自然语言处理的新闻文章自动摘要系统 - HarmonyOS 客户端（E 角色阶段 4 交付）",
+  "dependencies": {},
+  "devDependencies": {}
+}
