@@ -52,3 +52,6 @@
 | NFR-12 | API/数据库字段使用英文标识符 | 全员 | 1-6 | 文档与代码审查通过 |
 | NFR-13 | 质量达标率 | B/C | 2/6 | `quality_pass_rate = CNewSum test 中单样本 ROUGE-L >= 0.40 的数量 / 实际评价样本数量 >= 0.95` |
 | NFR-14 | 性能达标率 | B/C | 2/6 | `latency_pass_rate = 正式性能测试中 SummaryPipeline.generate(article) < 1500 ms 的数量 / 实际性能测试样本数量 >= 0.95` |
+| NFR-15 | Test 隔离 | B/C | 2/6 | test 在最终正式评价前保持 held-out，不得参与候选选择或调参 |
+| NFR-16 | 实验可追溯 | B | 2/6 | 训练、验证、评价和 failed/OOM/interrupted 均有真实运行记录 |
+| NFR-17 | 模型来源可追溯 | B | 2/6 | 深入候选与正式模型具有公开来源、model card、许可证及 revision |

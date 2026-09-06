@@ -19,6 +19,9 @@ runtime/logs/*
 runtime/training_runs/*
 !runtime/training_runs/.gitkeep
 
+# MySQL 免安装版（download_mysql.ps1 解压产物，几百 MB，不入仓）
+runtime/mysql/
+
 # E2E 端到端验证临时日志（run_e2e.ps1 写入，不入仓）
 runtime/*.log
 runtime/*.log.err

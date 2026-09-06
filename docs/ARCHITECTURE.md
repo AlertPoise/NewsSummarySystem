@@ -138,7 +138,17 @@ pending → processing → completed
 
 SummaryService 依据 Worker 交付结果持久化：成功写 summary、summary_time_ms、model_version 和 completed；失败写 summary_error 和 failed。不得直接由 failed 变为 completed，也不得形成 API 与 Worker 两套摘要逻辑。
 
-## 9. 参数命名、时间与接口变更
+## 9. B 阶段实验协议冻结
+
+核心 CNewSum split 为 train 275,596、dev 14,356、test 14,355（304,307）；test.anno、test2017、test2018 的重叠/来源待 B2-01 真实核验。普通样本基线字段为 article（句子数组）、summary（Seq2Seq target）、id、label；label 语义待官方资料确认，anno 的 adequacy/deducibility 不是训练 target，标准化必须保留句边界和字段来源。
+
+从模型决策开始只允许 train/dev：train 用于训练，dev 用于 validation、选择、调参与错误分析；所有 test 文件保持 held-out，首次正式 test 在 B2-10 且等待 C2-13。test ROUGE、loss、生成、长度或错误模式指导修改均为 test leakage。
+
+唯一评价协议为 `cnewsum_mlrouge_compatible_v1`。依据 [CNewSum 官方项目](https://dqwang122.github.io/projects/CNewSum/)：中文按字符切分，英文词与数字按空格切分后映射；项目记录使用 [0,1]。空格规范化、大小写和标点的 MLROUGE parity 细节待 evaluator 实现验证，不得猜测。corpus_rougeL 是该统一 evaluator 对完整 split 的 ROUGE-L F；quality_pass_rate 是同规范下单样本 ROUGE-L F≥0.40 的比例。
+
+最多 3 个深入下载/pilot 候选，模型必须公开、可加载、有 model card、许可证及 model/tokenizer revision。B 新增训练/模型运行产物预算 10GB；可清理冗余 checkpoint/optimizer，但保留元数据、日志、指标、失败原因、最佳 checkpoint/最终模型并记录清理。正式训练必须 CUDA；无 CUDA 标记 blocked，可合法 OOM 调整但不得缩减 train、使用 test 或降低阈值。每个真实运行都在 training_runs 留 parent_run_id、时间、来源/revision、数据指纹、参数、硬件、loss/ROUGE、status/error、原因和 artifacts；未运行指标为 null。
+
+## 10. 参数命名、时间与接口变更
 
 跨模块字段、API 字段、数据库字段和代码标识符均使用英文；文档、注释和 docstring 使用中文。客户端 API 时间为 ISO 8601 字符串，数据库时间为 DATETIME。分类固定为科技、财经、社会、体育、国内、国际。
 
