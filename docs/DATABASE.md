@@ -22,7 +22,7 @@
 | crawl_time | DATETIME，非空 | Crawler 实际成功采集内容的时间 | D | D/A；审计 |
 | summary_status | VARCHAR(20)，非空 | pending/processing/completed/failed 任务状态 | D Worker | D/E；列表、详情、摘要任务 |
 | summary_time_ms | INT，可空 | `SummaryPipeline.generate` 的完整生成耗时毫秒 | D Worker | D/E；详情、摘要任务 |
-| summary_error | TEXT，可空 | 最近一次失败的可诊断原因 | D Worker | D/A；内部诊断，不对客户端暴露 |
+| summary_error | TEXT，可空 | 支持范围内的最近一次可重试运行时失败原因 | D Worker | D/A；内部诊断，不对客户端暴露；范围外输入不写入此字段 |
 | model_version | VARCHAR(64)，可空 | 生成该 summary 的正式模型版本 | D Worker | D/A；审计 |
 | created_at | DATETIME，非空 | 数据库 news_articles 记录实际创建时间 | D | A/D；审计 |
 | updated_at | DATETIME，非空 | 数据库记录最后修改时间 | D Worker/D | A/D；审计 |
@@ -36,7 +36,7 @@
 | 字段 | 谁可写 | 何时写 |
 |---|---|---|
 | summary / summary_time_ms / model_version | D Worker | 摘要任务由 failed/pending → completed 时 |
-| summary_error | D Worker | 摘要任务由 processing → failed 时 |
+| summary_error | D Worker | 支持范围内摘要任务由 processing → failed 时；InputTooLongError 不写入 |
 | summary_status | D Worker / SummaryService | 状态机任意迁移（见 §8） |
 | 其余字段 | D NewsService | 入库与外部数据刷新 |
 
@@ -112,7 +112,7 @@ B 负责训练和评价主流程，C 提供完整在线 Pipeline 配合，A 按�
 
 ## 5. 状态机、字段映射与职责边界（摘要）
 
-`summary_status` 只允许 `pending → processing → completed`、`processing → failed`、`failed → pending`。D 的 Worker 成功更新 summary、summary_time_ms、model_version、updated_at；失败更新 summary_error、summary_status、updated_at。C 不直接更新业务表，B 不修改新闻业务表，E 不读 MySQL。
+`summary_status` 只允许 `pending → processing → completed`、`processing → failed`、`failed → pending`。D 的 Worker 成功更新 summary、summary_time_ms、model_version、updated_at；仅支持范围内可重试运行时失败更新 summary_error、summary_status、updated_at。InputTooLongError 是确定性范围外结果：不新增第五种状态、不进入 failed，而由 Worker 调用 SummaryService 删除记录。C 不直接更新业务表，B 不修改新闻业务表，E 不读 MySQL。
 
 API 映射：列表映射 `id/title/summary/category/source/publish_time/summary_status`；详情额外映射 `content/source_url/summary_time_ms` 与 A 的 `is_favorite/feedback`；模型指标映射 model_evaluations 除 id/created_at 外全部字段。完整 JSON 以 API.md 为准。
 
@@ -122,11 +122,11 @@ API 映射：列表映射 `id/title/summary/category/source/publish_time/summary
 
 ## 6. 外键策略与级联规则
 
-`favorites` 与 `feedback` 均通过 `news_id BIGINT UNSIGNED` 外键引用 `news_articles.id`。**本项目禁止直接 DELETE 新闻记录**（业务上无此场景：摘要失败可改 `summary_status='failed'` 不删新闻，爬虫重复通过 `content_hash` 唯一约束兜底），因此外键策略如下：
+`favorites` 与 `feedback` 均通过 `news_id BIGINT UNSIGNED` 外键引用 `news_articles.id`。正常业务情况下禁止任意直接 DELETE 新闻记录；唯一正式例外是 C 的 SummaryPipeline 使用正式 tokenizer 确认 `token_count > 512`，Worker 捕获 InputTooLongError 后通过 SummaryService 删除范围外新闻。Crawler 不加载 tokenizer，也不得直接删新闻。外键仍采用 RESTRICT，因此例外删除必须遵守下述事务顺序：
 
 | 外键关系 | ON DELETE | ON UPDATE | 理由 |
 |---|---|---|---|
-| `favorites.news_id → news_articles.id` | `RESTRICT`（默认） | `RESTRICT`（默认） | 禁止物理删除新闻；新闻存在性是收藏/反馈成立的前提 |
+| `favorites.news_id → news_articles.id` | `RESTRICT`（默认） | `RESTRICT`（默认） | 正常禁止删新闻；范围外例外删除前必须先删子记录 |
 | `feedback.news_id → news_articles.id` | `RESTRICT`（默认） | `RESTRICT`（默认） | 同上 |
 
 **写入顺序硬性要求**：
@@ -137,6 +137,7 @@ API 映射：列表映射 `id/title/summary/category/source/publish_time/summary
 | `POST /news/{news_id}/feedback` | 同上 |
 | `POST /news/{news_id}/summary` | 同上 |
 | `DELETE /favorites/{news_id}` | 无需先 SELECT 验证 news 存在；FK 不参与 DELETE |
+| `SummaryService.delete_unprocessable()` | **一个事务内**依次 DELETE `favorites WHERE news_id=?`、DELETE `feedback WHERE news_id=?`、DELETE `news_articles WHERE id=?`；最后一步失败必须 rollback 全部，禁止留下“子表已删、新闻仍在”的半删除状态 |
 
 **ORM 层处理**（阶段 3 由 A 实现）：`backend/app/services/user_service.py` 中对 INSERT favorites/feedback 的代码路径必须包 `try/except IntegrityError`，捕获 `pymysql.err.IntegrityError` 错误码 1452 后映射到 `BusinessError(1002)`；**不得让 SQLAlchemy 把 FK 错误冒泡为 500**。
 
@@ -206,7 +207,7 @@ def require_client_id(x_client_id: str = Header(..., alias="X-Client-ID")) -> st
 | `pending` | 已入库待摘要；可被 Worker 领取 | 否 |
 | `processing` | 已被 Worker 领取；摘要生成中 | 否（30s 保护见 §8.4） |
 | `completed` | 摘要生成成功并已持久化 | 是（除失败外不再迁移） |
-| `failed` | 摘要生成失败，可重试 | 否 |
+| `failed` | 支持范围内的摘要生成运行时失败，可重试 | 否 |
 
 ### 8.2 状态迁移图
 
@@ -239,6 +240,7 @@ def require_client_id(x_client_id: str = Header(..., alias="X-Client-ID")) -> st
 | `pending → processing` | D Worker（`SummaryService.claim_pending`） | 必须是 `UPDATE ... WHERE id=? AND summary_status='pending'` 的 CAS；受影响行数=1 才视为成功，=0 则其他 Worker 已领取，本轮放弃 | `summary_status='processing'`、`updated_at=NOW()` |
 | `processing → completed` | D Worker（`SummaryService.complete_summary`） | 必须在原 `processing` 行 UPDATE；CAS 失败（说明已被重置为 pending）记录警告 | `summary`、`summary_time_ms`、`model_version`、`summary_status='completed'`、`updated_at=NOW()` |
 | `processing → failed` | D Worker 异常路径 | 同上 CAS | `summary_error`、`summary_status='failed'`、`updated_at=NOW()`；`summary`、`summary_time_ms`、`model_version` **保持原值或显式清空（由 D 决定，但写入协议必须固定）** |
+| `processing → InputTooLongError → 物理删除` | D Worker 捕获 C Pipeline 的确定性范围外异常 | 必须调用 `SummaryService.delete_unprocessable()` 的单一事务 | 依次删除 favorites、feedback、news_articles；不写 failed、不写 summary_error、不重试 |
 | `failed → pending` | E POST `/news/{news_id}/summary` 或 Worker 失败重试 | CAS：`UPDATE ... WHERE id=? AND summary_status='failed'` | `summary_error=NULL`、可选清空 `summary`、`summary_time_ms`、`model_version`、`summary_status='pending'`、`updated_at=NOW()` |
 | 任何 → `processing`（除 pending 外） | **禁止** | — | — |
 | `completed → *` | **禁止**（除非人工干预；本项目不提供此接口） | — | — |

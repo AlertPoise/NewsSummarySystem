@@ -38,8 +38,8 @@ HarmonyOS [E] ← FastAPI Route [A/D] → SummaryService [D] → SQLAlchemy / My
 1. D 的 Crawler 从真实来源解析网页，执行网页级清洗并返回 RawArticle。
 2. D 的 NewsService 映射六类、计算正文 SHA-256、去重并写入 `news_articles`，摘要状态为 `pending`。
 3. D 的 Worker 通过 SummaryService 原子取得 pending 新闻，状态变为 `processing`，并调用唯一公开 AI 接口。
-4. C 的 Pipeline 按“清洗→分句→BERT→余弦相似度→TextRank/PageRank→Token Budget→原文顺序恢复→Seq2Seq”生成 SummaryResult。
-5. Worker 将 SummaryResult 或失败信息交给 SummaryService；SummaryService 成功持久化 summary、summary_time_ms、model_version 和 `completed`，失败持久化 summary_error 和 `failed`。
+4. C 的 Pipeline 先以 B 正式 Seq2Seq/T5 tokenizer 对原始 article 做未截断 eligibility 判定；`token_count <= 512` 才按“清洗→分句→BERT→余弦相似度→TextRank/PageRank→Token Budget→原文顺序恢复→Seq2Seq”生成 SummaryResult，`token_count > 512` 则抛 InputTooLongError。
+5. Worker 将 SummaryResult 或可重试运行时失败交给 SummaryService；SummaryService 成功持久化 summary、summary_time_ms、model_version 和 `completed`，运行时失败持久化 summary_error 和 `failed`。InputTooLongError 则由 Worker 经 SummaryService 在一个事务中删除范围外新闻及关联数据，不进入 failed。
 6. A/D 的 API 经 Service 返回新闻与用户状态；E 的客户端只按 API 契约显示。
 
 ## 4. 离线训练流与 B→C 模型交付
@@ -64,13 +64,17 @@ B 只从 `runtime/datasets/` 读取 CNewSum；正式原始数据目录固定为 
 }
 ```
 
-`dataset` 固定为 `CNewSum`；`model_version` 必须与 `SummaryResult.model_version` 使用同一版本值；`generation_config` 必须为保存正式生成参数的 JSON 对象。C 的在线 Pipeline 必须读取并遵守该正式元信息，且不得自行改写 `max_input_tokens` 或 `max_new_tokens`。B 的训练 tokenizer 和 C 的在线 tokenizer 必须一致。术语映射固定为：`max_source_length = max_input_tokens`、`max_target_length = max_new_tokens`；`SUMMARIZER_MAX_INPUT_TOKENS` 对应正式 `max_input_tokens`，`SUMMARIZER_MAX_NEW_TOKENS` 对应正式 `max_new_tokens`。阶段2由 B/C 统一现有配置和代码命名，不能由 C 自行缩短输入长度。
+`dataset` 固定为 `CNewSum`；`model_version` 必须与 `SummaryResult.model_version` 使用同一版本值；`generation_config` 必须为保存正式生成参数的 JSON 对象。C 的在线 Pipeline 必须读取并遵守该正式元信息，且不得自行改写 `max_input_tokens` 或 `max_new_tokens`。B 的训练 tokenizer 和 C 的在线 tokenizer 必须一致。术语映射固定为：`max_source_length = max_input_tokens`、`max_target_length = max_new_tokens`；`SUMMARIZER_MAX_INPUT_TOKENS` 对应正式 `max_input_tokens`，`SUMMARIZER_MAX_NEW_TOKENS` 对应正式 `max_new_tokens`。当前正式 `max_input_tokens=512`；C/D 不得自行改为 256、384 或 1024。
+
+### 正式输入范围
+
+唯一有效的 eligibility 判定是正式 Seq2Seq/T5 tokenizer 对原始 `article` 执行 `add_special_tokens=true`、`truncation=false` 后的 token_count：`<=max_input_tokens` 才可进入 Pipeline，`>` 则为项目范围外。中文字符数、词数、BERT tokenizer、Crawler 估算及 TextRank 选句后长度都不能替代该判定。TextRank Token Budget 只在合法原文中选择关键句，不能将 >512 原文压缩后伪装为支持范围内输入；禁止 silent truncation。
 
 ### B 实验记录、验收与依赖边界
 
 `runtime/training_runs/` 是 B 唯一正式实验运行记录目录。每个真实实验须使用可追溯、稳定的 `run_id` 子目录，并在其中保存 JSON 或 JSONL 运行记录；禁止使用 `final`、`final2`、`best_new`、`final_final` 等不可维护名称。每条运行记录至少包含 `run_id`、`timestamp`、`task`、`candidate_model`、`model_version`、`dataset`、`dataset_split`、`training_parameters`、`generation_parameters`、`sample_count`、`rouge1`、`rouge2`、`rougeL`、`quality_pass_rate`、`avg_generation_time_ms`、`p95_generation_time_ms`、`latency_pass_rate`、`status` 和 `notes`；某轮未进行的真实评价字段可缺省或为 null，禁止填写虚假结果。checkpoint、中间日志、生成结果和其他运行产物也只能保存在该运行目录或 `runtime/` 的正式模型目录，默认不得提交 Git。
 
-正式质量指标为完整正式 Pipeline 在 CNewSum test 上的 `corpus_rougeL >= 0.40`。`quality_pass_rate` 定义为 CNewSum test 中“单样本 ROUGE-L >= 0.40”的样本数除以实际评价样本数，必须 `>= 0.95`。正式性能测试在 Pipeline 已 load、GPU 已预热、batch_size=1 时，从 `SummaryPipeline.generate(article)` 方法进入至最终 summary 字符串完成计时；不包括模型下载、首次模型加载、新闻网络抓取、HTTP 或 MySQL 查询。`latency_pass_rate` 定义为生成时间 `< 1500 ms` 的性能测试样本数除以实际性能测试样本数，必须 `>= 0.95`；同时 `p95_generation_time_ms < 1500`。不得跳过 BERT、TextRank 或 Transformer，不得改为固定 Top-N 或裸 Seq2Seq benchmark。
+正式质量指标为完整正式 Pipeline 在 CNewSum eligible test subset 上的 `corpus_rougeL >= 0.40`。子集从原始 test 按正式 tokenizer 的未截断 `article_token_count <= 512` 构建，并记录完整 test、eligible、excluded 的数量和比例；完整 test 仅作诊断。`quality_pass_rate` 定义为 eligible 样本中“单样本 ROUGE-L >= 0.40”的样本数除以实际评价样本数，必须 `>= 0.95`。正式性能测试在 Pipeline 已 load、GPU 已预热、batch_size=1 时，从 `SummaryPipeline.generate(article)` 方法进入至最终 summary 字符串完成计时；不包括模型下载、首次模型加载、新闻网络抓取、HTTP 或 MySQL 查询。`latency_pass_rate` 定义为 eligible 样本中生成时间 `< 1500 ms` 的性能测试样本数除以实际性能测试样本数，必须 `>= 0.95`；同时 `p95_generation_time_ms < 1500`。不得跳过 BERT、TextRank 或 Transformer，不得改为固定 Top-N 或裸 Seq2Seq benchmark。
 
 候选先通过全部硬门槛（`corpus_rougeL >= 0.40`、`quality_pass_rate >= 0.95`、`latency_pass_rate >= 0.95`、`p95_generation_time_ms < 1500`）才能排序。合格候选采用 `quality_score = clamp((corpus_rougeL - 0.40) / (1.00 - 0.40), 0, 1)`、`performance_score = clamp((1500 - p95_generation_time_ms) / 1500, 0, 1)`、`final_selection_score = 0.7 * quality_score + 0.3 * performance_score`，其中 `clamp(x, 0, 1)` 将数值限制在 `[0, 1]`。同分时依次选择更高 `corpus_rougeL`、更低 `p95_generation_time_ms`、更小或更稳定的模型；加权分数绝不能掩盖硬门槛失败。
 
@@ -93,7 +97,7 @@ class SummaryPipeline:
     def generate(self, article: str) -> SummaryResult: ...
 ```
 
-`load()` 负责加载和预热正式组件。`generate()` 的计时从方法进入到最终摘要字符串生成完成；模型下载、首次加载、新闻请求、MySQL 查询及 HTTP 传输不计入。BERT 用于句子语义向量；TextRank 使用句间余弦相似度图进行关键句排序；Token Budget 按 `max_input_tokens` 选句，不固定 Top-N；Seq2Seq 仅负责最终生成。C 可替换内部实现，但未经接口变更流程不得修改该公共签名；D 不得绕过它调用 BERT、Tokenizer、TextRank 或 Transformer。
+`load()` 负责加载和预热正式组件。`generate()` 的计时从方法进入到最终摘要字符串生成完成；模型下载、首次加载、新闻请求、MySQL 查询及 HTTP 传输不计入。C 必须首先以 metadata 所指正式 tokenizer 计算原始 article 的未截断 token_count；超过 512 时抛 `InputTooLongError`。该异常是确定性的“输入不属于项目支持范围”结果，不是模型故障、临时错误或可重试错误。BERT 用于句子语义向量；TextRank 使用句间余弦相似度图进行关键句排序；Token Budget 仅在 eligibility 已通过时按 `max_input_tokens` 选句，不固定 Top-N；Seq2Seq 仅负责最终生成。C 可替换内部实现，但未经接口变更流程不得修改该公共签名；D 不得绕过它调用 BERT、Tokenizer、TextRank 或 Transformer。
 
 ## 6. Crawler→NewsService 接口与清洗边界
 
@@ -129,14 +133,16 @@ D 的详情逻辑不能重新实现 favorites/feedback 查询。B/C 向 A 的评
 
 SummaryService 只负责摘要任务状态、事务、并发控制和数据库协调：查询当前状态；处理 API 摘要请求；completed 返回已有结果；processing 返回处理中；pending 保持待处理；failed 原子重置为 pending；协助 Worker 领取 pending 并完成 pending→processing；接收 Worker 成功结果或失败信息并持久化最终状态。SummaryService 不得持有或调用 SummaryPipeline，不得直接使用 BERT、TextRank 或 Transformer。
 
-Worker 是唯一正式调用 `SummaryPipeline.generate(article)` 的业务组件。Worker 通过 SummaryService 原子领取 pending 新闻，状态变为 processing；Worker 调用 Pipeline 并将 SummaryResult 交回 SummaryService；发生异常时将错误信息交回 SummaryService。`POST /api/news/{news_id}/summary` 仅调用 SummaryService，不在 HTTP 线程运行 Transformer：completed 返回缓存，processing 返回处理中，pending 保持/确认 pending 后返回已接受，failed 置回 pending 后返回已接受重试。
+Worker 是唯一正式调用 `SummaryPipeline.generate(article)` 的业务组件。Worker 通过 SummaryService 原子领取 pending 新闻，状态变为 processing；Worker 调用 Pipeline 并将 SummaryResult 交回 SummaryService；可重试运行时异常才将错误信息交回 SummaryService。Worker 捕获 InputTooLongError 时必须调用 `SummaryService.delete_unprocessable()`，在一个事务内按 `favorites → feedback → news_articles` 的顺序物理删除；新闻主记录删除失败时事务必须 rollback，禁止半删除。`POST /api/news/{news_id}/summary` 仅调用 SummaryService，不在 HTTP 线程运行 Transformer：completed 返回缓存，processing 返回处理中，pending 保持/确认 pending 后返回已接受，failed 置回 pending 后返回已接受重试。已删除的范围外新闻按普通不存在资源返回 404/1002。
 
 ```text
 pending → processing → completed
                  └──→ failed → pending
+
+processing → InputTooLongError → delete_unprocessable() → 物理删除（离开状态机）
 ```
 
-SummaryService 依据 Worker 交付结果持久化：成功写 summary、summary_time_ms、model_version 和 completed；失败写 summary_error 和 failed。不得直接由 failed 变为 completed，也不得形成 API 与 Worker 两套摘要逻辑。
+SummaryService 依据 Worker 交付结果持久化：成功写 summary、summary_time_ms、model_version 和 completed；可重试运行时失败才写 summary_error 和 failed。InputTooLongError 绝不能写入 failed 或进入 failed→pending 循环，而是计入 out_of_scope/deleted 并从数据集中移除。不得直接由 failed 变为 completed，也不得形成 API 与 Worker 两套摘要逻辑。
 
 ## 9. B 阶段实验协议冻结
 
@@ -144,7 +150,7 @@ SummaryService 依据 Worker 交付结果持久化：成功写 summary、summary
 
 从模型决策开始只允许 train/dev：train 用于训练，dev 用于 validation、选择、调参与错误分析；所有 test 文件保持 held-out，首次正式 test 在 B2-10 且等待 C2-13。test ROUGE、loss、生成、长度或错误模式指导修改均为 test leakage。
 
-唯一评价协议为 `cnewsum_mlrouge_compatible_v1`。依据 [CNewSum 官方项目](https://dqwang122.github.io/projects/CNewSum/)：中文按字符切分，英文词与数字按空格切分后映射；项目记录使用 [0,1]。空格规范化、大小写和标点的 MLROUGE parity 细节待 evaluator 实现验证，不得猜测。corpus_rougeL 是该统一 evaluator 对完整 split 的 ROUGE-L F；quality_pass_rate 是同规范下单样本 ROUGE-L F≥0.40 的比例。
+唯一评价协议为 `cnewsum_mlrouge_compatible_v1`。依据 [CNewSum 官方项目](https://dqwang122.github.io/projects/CNewSum/)：中文按字符切分，英文词与数字按空格切分后映射；项目记录使用 [0,1]。空格规范化、大小写和标点的 MLROUGE parity 细节待 evaluator 实现验证，不得猜测。正式 corpus_rougeL 是该统一 evaluator 对 eligible test subset 的 ROUGE-L F；quality_pass_rate 是同规范下 eligible 样本 ROUGE-L F≥0.40 的比例。full test 只能作为历史诊断，必须与正式范围结果明确区分。
 
 最多 3 个深入下载/pilot 候选，模型必须公开、可加载、有 model card、许可证及 model/tokenizer revision。B 新增训练/模型运行产物预算 10GB；可清理冗余 checkpoint/optimizer，但保留元数据、日志、指标、失败原因、最佳 checkpoint/最终模型并记录清理。正式训练必须 CUDA；无 CUDA 标记 blocked，可合法 OOM 调整但不得缩减 train、使用 test 或降低阈值。每个真实运行都在 training_runs 留 parent_run_id、时间、来源/revision、数据指纹、参数、硬件、loss/ROUGE、status/error、原因和 artifacts；未运行指标为 null。
 
