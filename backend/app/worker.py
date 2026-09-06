@@ -4,7 +4,9 @@
   阶段A：Crawler 从真实来源采集 RawArticle -> NewsService 校验/去重/入库为 pending；
   阶段B：SummaryService 原子领取 pending 置为 processing -> Worker 调用
          SummaryPipeline.generate(article) -> 成功经 SummaryService.complete 持久化，
-         单篇异常经 SummaryService.fail 置为 failed（可经 API 重试回 pending）。
+         单篇异常经 SummaryService.fail 置为 failed（可经 API 重试回 pending）；
+         InputTooLongError（正文超 max_input_tokens，确定性不可处理）例外：
+         经 SummaryService.delete_unprocessable 删除该新闻，不进入可重试循环。
   启动自检：把滞留 processing 超过阈值的僵尸记录恢复为 failed，防止异常退出
   导致文章永久卡死（processing 不在 API 可重试范围内）。
 
@@ -27,7 +29,7 @@ from sqlalchemy import select
 from app.crawlers.source_a import SourceA
 from app.crawlers.source_b import SourceB
 from app.database import SessionLocal
-from app.exceptions import BusinessError
+from app.exceptions import BusinessError, InputTooLongError
 from app.models import NewsArticle
 from app.services.news_service import NewsService
 from app.services.summary_service import PROCESSING, SummaryService
@@ -110,9 +112,12 @@ def run_summary_phase(db, pipeline, batch_limit: int = 50) -> dict[str, int]:
     异常交 fail（failed 可经 API 重试回 pending，不会卡死在 processing）。
     generate 抛 NotImplementedError 视为流水线未交付：该篇记为失败后停止本轮，
     不把剩余 pending 批量误标失败。
+    generate 抛 InputTooLongError 视为确定性永久不可处理（正文超过
+    max_input_tokens，重试必然复现）：删除该新闻及外键依赖行并计入 deleted，
+    绝不标 failed，避免 failed -> pending 的永久重试循环。
     """
-    stats = {"completed": 0, "failed": 0}
-    while stats["completed"] + stats["failed"] < batch_limit:
+    stats = {"completed": 0, "failed": 0, "deleted": 0}
+    while stats["completed"] + stats["failed"] + stats["deleted"] < batch_limit:
         article = SummaryService.claim_pending(db)
         if article is None:
             break
@@ -123,6 +128,15 @@ def run_summary_phase(db, pipeline, batch_limit: int = 50) -> dict[str, int]:
             stats["failed"] += 1
             print(f"[worker] 流水线未实现，本篇已记为 failed（id={article.id}），本轮摘要终止。", flush=True)
             break
+        except InputTooLongError as exc:
+            dependents = SummaryService.delete_unprocessable(db, article.id)
+            stats["deleted"] += 1
+            print(
+                f"[worker] 文章 id={article.id} 正文超过 max_input_tokens（{exc}），"
+                f"确定性不可摘要，已删除该新闻及 {dependents} 条关联收藏/反馈。",
+                flush=True,
+            )
+            continue
         except Exception as exc:
             SummaryService.fail(db, article.id, str(exc)[:500])
             stats["failed"] += 1
@@ -141,6 +155,11 @@ def run_summary_phase(db, pipeline, batch_limit: int = 50) -> dict[str, int]:
             f"模型 {result.model_version}",
             flush=True,
         )
+    print(
+        f"[worker] 阶段B统计：成功 {stats['completed']}，失败 {stats['failed']}，"
+        f"超长删除 {stats['deleted']}。",
+        flush=True,
+    )
     return stats
 
 

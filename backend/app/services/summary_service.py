@@ -16,10 +16,10 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from app.exceptions import state_conflict
-from app.models import NewsArticle
+from app.models import Favorite, Feedback, NewsArticle
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -170,3 +170,35 @@ class SummaryService:
                 "摘要失败 CAS 失败：news_id=%s 已不处于 processing，跳过写入（DATABASE.md §8.3）",
                 news_id,
             )
+
+    @staticmethod
+    def delete_unprocessable(db: "Session", news_id: int) -> int:
+        """永久删除确定性不可摘要的新闻（如正文超过 max_input_tokens）。
+
+        冻结状态机（DATABASE.md §8.1 固定四态 + CHECK 约束）没有"永久跳过"
+        终态：标 failed 会被 request_summary 重置回 pending 形成永久重试循环，
+        标 completed 属于伪造摘要，因此唯一不破坏状态机的处理是删除该新闻。
+        favorites/feedback 对 news_articles 为 RESTRICT 外键，必须先删依赖行
+        再删新闻行。仅当行仍处于 processing（Worker 刚领取）时执行删除，CAS
+        失败记录警告且不删（processing 只会由持有它的 Worker 自身迁移，此
+        分支仅作并发防御）。返回删除的收藏/反馈条数。
+        """
+        dependents = db.execute(
+            delete(Favorite).where(Favorite.news_id == news_id)
+        ).rowcount
+        dependents += db.execute(
+            delete(Feedback).where(Feedback.news_id == news_id)
+        ).rowcount
+        result = db.execute(
+            delete(NewsArticle).where(
+                NewsArticle.id == news_id,
+                NewsArticle.summary_status == PROCESSING,
+            )
+        )
+        db.commit()
+        if result.rowcount != 1:
+            logger.warning(
+                "删除不可摘要新闻 CAS 失败：news_id=%s 已不处于 processing，跳过删除",
+                news_id,
+            )
+        return dependents
