@@ -18,6 +18,7 @@ from __future__ import annotations
 import time
 
 from app.ai.bert_encoder import BertEncoder
+from app.ai.postprocess import normalize_summary
 from app.ai.preprocess import clean_text, split_sentences
 from app.ai.summarizer import AiUnavailableError, TransformerSummarizer
 from app.ai.textrank import rank_sentences, select_sentences_by_budget
@@ -162,4 +163,5 @@ class SummaryPipeline:
         summary = self.summarizer.generate(selected_text)
         if not summary:
             raise AiUnavailableError("正式摘要模型输出为空，无法生成摘要。")
-        return summary
+        # 8. 输出规范化：修复模型输出的排版问题（空格/标点/百分号格式），不改事实
+        return normalize_summary(summary)
