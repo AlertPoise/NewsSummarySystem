@@ -107,12 +107,18 @@ class TransformerSummarizer:
         max_new_tokens = int(metadata["max_new_tokens"])
         generation_config: dict[str, Any] = metadata.get("generation_config") or {}
 
+        # 禁止静默截断：tokenize 不做 truncation，若实际超出正式输入上限则显式失败
         inputs = self._tokenizer(
             selected_text,
-            max_length=max_input_tokens,
-            truncation=True,
+            add_special_tokens=True,
+            truncation=False,
             return_tensors="pt",
         )
+        if inputs["input_ids"].shape[-1] > max_input_tokens:
+            raise AiUnavailableError(
+                f"送入 Transformer 的文本超长：{inputs['input_ids'].shape[-1]} token，"
+                f"超过正式最大输入 {max_input_tokens} token（禁止静默截断）。"
+            )
         inputs = {key: value.to(self._model.device) for key, value in inputs.items()}
         import torch
 
@@ -124,3 +130,20 @@ class TransformerSummarizer:
             )
         summary = self._tokenizer.decode(output_ids[0], skip_special_tokens=True)
         return summary.strip()
+
+    def count_tokens(self, text: str) -> int:
+        """用正式摘要模型 tokenizer 对文本做未截断计数（含特殊标记）。
+
+        用于 Pipeline 输入长度预检：与正式模型 max_input_tokens 同源，
+        保证"<=512 允许、>512 拒绝"判定口径与模型一致。
+        """
+        if not self._loaded:
+            raise AiUnavailableError("TransformerSummarizer 未加载，请先调用 load()。")
+        if not text:
+            return 0
+        encoded = self._tokenizer(
+            text,
+            add_special_tokens=True,
+            truncation=False,
+        )
+        return len(encoded["input_ids"])

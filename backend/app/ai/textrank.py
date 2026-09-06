@@ -5,7 +5,9 @@
 - 构造句间余弦相似度矩阵；
 - 在其上真实执行 TextRank（PageRank 迭代）得到每句重要性得分；
 - Token Budget 按 max_input_tokens 预算、按得分贪心选句，
-  超长句做二次切分，最后恢复原文顺序返回选中的句子索引。
+  超长句做二次切分，最后恢复原文顺序返回选中的文本片段。
+  （返回文本而非索引：索引只能表达"整句"，无法表达超长句被采纳的分段，
+   选句函数须返回实际送进模型的文本，预算才算得一致。）
 
 本文件不依赖模型与网络，便于离线单元测试。
 """
@@ -132,17 +134,20 @@ def select_sentences_by_budget(
     max_input_tokens: int,
     *,
     char_per_token: float = 2.0,
-) -> list[int]:
-    """按得分贪心选择填入 Token 预算的句子，返回按原文顺序的索引。
+) -> list[str]:
+    """按得分贪心选择填入 Token 预算的句子片段，按原文顺序返回**文本**。
 
     - sentences：原文顺序的分句列表（与 scores 一一对应）。
     - scores：TextRank 重要性得分。
     - max_input_tokens：B 正式模型元信息中的 max_input_tokens 上限。
     - char_per_token：中文字符与 token 的经验折算（默认约 2 字符/token），
       实际估算在 Pipeline 中可用 tokenizer 精确化。
-    选句策略（不固定 Top-N）：按得分从高到低尝试加入，使累计估算 token
-    不超预算；对超长句调用 split_overlong_sentence 二次切分，只取其中
-    得分最高的一段；返回被选中句子的原文索引（保持升序=原文顺序）。
+
+    策略（不固定 Top-N）：按得分从高到低尝试加入整句，使累计估算 token
+    不超预算；装不下的超长句用 split_overlong_sentence 二次切分，逐段放入
+    仍能容纳的分段。返回**实际选中的文本片段**（保持原文顺序直接可拼），
+    因为只有"文本即预算对象"才能保证送进模型的每一段都 ≤ 预算，杜绝
+    超长句按切片记账却把整句送进模型（P1-1）。
     """
     budget = int(max_input_tokens)
     if budget <= 0 or not sentences:
@@ -154,27 +159,24 @@ def select_sentences_by_budget(
 
     # 预计算每句估算 token
     token_estimates = [estimate_tokens(s) for s in sentences]
-    # 超长句候选：将超长句切分为分段，供预算内择优
     # 以 (得分, 原文索引) 记录，按得分降序贪心
     order = sorted(range(len(sentences)), key=lambda i: scores[i], reverse=True)
 
-    selected: set[int] = set()
+    # 按原文索引收集入选文本；累计估算 token 只对"实际入选文本"记账，
+    # 保证送进模型的内容与预算一致（超长句只纳入能装下的分段，P1-1）。
+    chosen: dict[int, list[str]] = {}
     used = 0
     for idx in order:
         token_need = token_estimates[idx]
         if token_need <= budget - used:
             # 整句可容纳
-            selected.add(idx)
+            chosen.setdefault(idx, []).append(sentences[idx])
             used += token_need
             continue
-        # 超长或余量不足：尝试二次切分后放入最值得的一段
-        overlong = split_overlong_sentence(sentences[idx], int(budget * char_per_token))
-        if overlong:
-            # 只取该长句切分后得分最高的若干段放入（此处取第一段为代表，
-            # 如需更细可在此按分段长度循环放入）
-            seg = overlong[0]
+        # 整句放不下：二次切分，逐段放入仍能容纳的分段（分段按切分顺序拼接）
+        for seg in split_overlong_sentence(sentences[idx], int(budget * char_per_token)):
             seg_token = estimate_tokens(seg)
             if seg_token <= budget - used:
-                selected.add(idx)
+                chosen.setdefault(idx, []).append(seg)
                 used += seg_token
-    return sorted(selected)
+    return [piece for i in sorted(chosen) for piece in chosen[i]]

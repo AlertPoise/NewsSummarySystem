@@ -81,7 +81,8 @@ class TestFactualConsistency:
     def test_empty_source_or_candidate(self) -> None:
         """源文或摘要为空时保守处理：不误报也不崩溃。"""
         assert check_factual_consistency("", "") == []
-        assert check_factual_consistency("有摘要但源空", "") == [] or True  # 保守不崩溃
+        # 源文为空：无依据可比对，保守返回空（不做硬事实误报）
+        assert check_factual_consistency("有摘要但源空", "") == []
 
 
 class TestNumericDistortion:

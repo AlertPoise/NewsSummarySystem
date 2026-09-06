@@ -60,3 +60,18 @@ def internal_error(message: str = "内部错误") -> BusinessError:
     """HTTP 500 / 错误码 1005：内部业务失败。"""
 
     return BusinessError(code=ERR_INTERNAL, message=message, http_status=500)
+
+
+# ---------- Worker / Pipeline 契约异常（非 HTTP 业务错误） ----------
+
+
+class InputTooLongError(Exception):
+    """正文超过 max_input_tokens 的确定性永久不可处理异常。
+
+    SummaryPipeline.generate() 在正文超过正式 max_input_tokens（冻结配置，
+    如 512）时抛出。与网络抖动、模型临时故障等"可重试的临时失败"不同，
+    该异常表示无论重试多少次结果都不会改变：同一篇正文必然再次超限。
+    Worker 捕获后按永久不可处理处理（删除该新闻及外键依赖行），绝不能
+    标记为 failed——request_summary 会把 failed 重置回 pending，形成
+    failed → pending → failed 的永久重试循环。
+    """

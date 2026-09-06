@@ -145,6 +145,10 @@ class TestInputLengthLimit:
             def load(self) -> None:
                 pass
 
+            def count_tokens(self, text: str) -> int:
+                # Pipeline 现在用 summarizer 的 tokenizer 计数长度
+                return fake_tokens
+
             def generate(self, text: str) -> str:
                 return "生成的摘要。"
 
@@ -209,6 +213,9 @@ class TestFactualGate:
 
             def load(self) -> None:
                 pass
+
+            def count_tokens(self, text: str) -> int:
+                return len(text)
 
             def generate(self, text: str) -> str:
                 return fake_summary

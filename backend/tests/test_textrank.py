@@ -65,29 +65,27 @@ class TestRankSentences:
 
 
 class TestTokenBudget:
-    """Token Budget 贪心选句测试。"""
+    """Token Budget 贪心选句测试。选句结果按原文顺序返回**文本片段**。"""
 
     def test_empty(self) -> None:
-        """空句子返回空索引。"""
+        """空句子返回空列表。"""
         assert select_sentences_by_budget([], [], 100) == []
 
     def test_short_text_fits_entirely(self) -> None:
         """文本总 token 低于预算时全部入选，顺序保持原文。"""
         sentences = ["甲句。", "乙句。", "丙句。"]
         scores = [0.9, 0.1, 0.5]
-        idx = select_sentences_by_budget(sentences, scores, max_input_tokens=500)
-        assert idx == [0, 1, 2]  # 全部入选，保持原序
+        out = select_sentences_by_budget(sentences, scores, max_input_tokens=500)
+        assert out == ["甲句。", "乙句。", "丙句。"]  # 全部入选，保持原序
 
     def test_selects_highest_scoring_under_budget(self) -> None:
-        """预算不足时按得分贪心，返回原序索引。"""
-        # 每句约 5 字，char_per_token=2 时约 3 token
+        """预算不足时按得分贪心，返回原序文本。"""
+        # 每句约 7 字，char_per_token=2 时约 4 token
         sentences = ["这是第一句很长。", "这是第二句很长。", "这是第三句很长。"]
         scores = [0.1, 0.9, 0.2]
-        # 预算只够约 2 句（3 token/句），应选得分最高的第1句(索引1)与次高的第2句(索引2)
-        idx = select_sentences_by_budget(sentences, scores, max_input_tokens=8)
-        assert idx == sorted(idx)  # 原序
-        assert 1 in idx
-        assert len(idx) >= 1
+        out = select_sentences_by_budget(sentences, scores, max_input_tokens=10)
+        assert out[0] in sentences  # 原序：若多句则按原文先后
+        assert "这是第二句很长。" in out  # 高分句必入选
 
     def test_not_fixed_top_n(self) -> None:
         """选句数量由预算决定，不固定为 Top-N。"""
@@ -96,8 +94,8 @@ class TestTokenBudget:
         # 大预算选全部，小预算只选部分，证明不是硬编码 N
         big = select_sentences_by_budget(sentences, scores, max_input_tokens=100)
         small = select_sentences_by_budget(sentences, scores, max_input_tokens=6)
-        assert len(big) == 5
-        assert len(small) < 5
+        assert len("".join(big)) >= len("".join(small))
+        assert len("".join(small)) <= 6 * 2  # 字符数受预算约 6 token（2 字/token）约束
 
     def test_overlong_sentence_split(self) -> None:
         """超长句被切分为不超限的分段。"""
@@ -106,12 +104,26 @@ class TestTokenBudget:
         assert "".join(segs) == "这是" * 30
 
     def test_overlong_under_budget(self) -> None:
-        """含超长句时能二次切分并入预算，不整体丢弃。"""
+        """含超长句时能二次切分并入预算，不整体丢弃，且所选不超过预算。"""
         long_sentence = "，" .join(["重要内容" * 5] * 3)  # 含逗号的长句
         sentences = [long_sentence, "短句。"]
         scores = [0.95, 0.05]
-        idx = select_sentences_by_budget(sentences, scores, max_input_tokens=20)
-        assert 0 in idx  # 高分长句通过切分进入摘要
+        out = select_sentences_by_budget(sentences, scores, max_input_tokens=20)
+        assert "".join(out)  # 非空
+        # P1-1 回归：所选文本必须 ≤ 预算（20 token → 40 字符），
+        # 绝不能把整句（远超市）当成已入预算送回
+        assert len("".join(out)) <= 20 * 2
+
+    def test_overlong_never_exceeds_budget_token_estimate(self) -> None:
+        """P1-1 回归：任何句子的入选文本，累计估算 token 不得超过预算。"""
+        # 单句 300 字、预算 20 token：旧实现会把整句 300 字当 150 token 计账，
+        # 却把整句加进结果——本测试验证结果总字符 ≤ 预算×字符折算
+        very_long = "，" .join(["这是非常关键的长句内容" * 10] * 5)  # 数百字
+        sentences = [very_long, "次要不重要。", "补充信息句。"]
+        scores = [0.9, 0.05, 0.05]
+        out = select_sentences_by_budget(sentences, scores, max_input_tokens=20)
+        # 每字符估算 token = ceil(1/2)=1/2，总字符 ≤ 预算*2 = 40
+        assert len("".join(out)) <= 40
 
 
 if __name__ == "__main__":
