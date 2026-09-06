@@ -82,3 +82,32 @@ class TestFactualConsistency:
         """源文或摘要为空时保守处理：不误报也不崩溃。"""
         assert check_factual_consistency("", "") == []
         assert check_factual_consistency("有摘要但源空", "") == [] or True  # 保守不崩溃
+
+
+class TestNumericDistortion:
+    """数值失真（模型把源文数值转错）检测测试。"""
+
+    def test_4_5_percent_to_cheng_detected(self) -> None:
+        """"4.5%" 被说成 "超4成"(=40%) 应判违规。"""
+        source = "8月规模以上工业增加值同比增长4.5%。"
+        candidate = "8月规模以上工业增加值同比增超4成。"
+        violations = check_factual_consistency(candidate, source)
+        assert any("percent" in v for v in violations)
+
+    def test_correct_percent_passes(self) -> None:
+        """百分比与源文一致时通过。"""
+        source = "8月规模以上工业增加值同比增长4.5%。"
+        candidate = "8月规模以上工业增加值同比增长4.5%。"
+        assert check_factual_consistency(candidate, source) == []
+
+    def test_chinese_percent_supported(self) -> None:
+        """"百分之四点五" 与 "4.5%" 数值兼容，不误报。"""
+        source = "同比增长百分之四点五。"
+        candidate = "同比增长4.5%。"
+        assert check_factual_consistency(candidate, source) == []
+
+    def test_cheng_supported(self) -> None:
+        """候选用"成"，源文同值用"成"（如 4成 vs 4成）通过。"""
+        source = "同比增长四成。"
+        candidate = "同比增长4成。"
+        assert check_factual_consistency(candidate, source) == []

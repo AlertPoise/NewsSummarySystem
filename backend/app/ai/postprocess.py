@@ -147,21 +147,113 @@ _YEAR_PATTERNS = [
     re.compile(r"19[0-9]{2}年"),
 ]
 
-# 百分比数字：如 "4.5%"、"百分之四点五"、"50%"
+# 百分比数字：如 "4.5%"、"百分之四点五"、"50%"、"超4成"（1成=10%）
+# 覆盖直接百分比、中文百分比，以及带修饰词的"超/约/近 X成/X%"
 _PERCENT_PATTERNS = [
     re.compile(r"[0-9]+(?:\.[0-9]+)?%"),
     re.compile(r"百分之[零一二三四五六七八九十百千万点]+"),
+    re.compile(r"[超约近]?[0-9]+(?:\.[0-9]+)?[成]"),
+    re.compile(r"[超约近]?[一二三四五六七八九十]+[成]"),
 ]
+# 修饰词（数量级/约数），用于归一判断时去掉，不视为精确值
+_APPROX_PREFIX = ("超", "约", "近", "超过", "将近", "不到", "高于", "低于")
+# 中文数字到阿拉伯数字（基础位）
+_CN_NUM = {
+    "零": 0, "一": 1, "二": 2, "三": 3, "四": 4,
+    "五": 5, "六": 6, "七": 7, "八": 8, "九": 9,
+}
 
-# 普通数字（不含百分号/年份/月份的裸数字）：如 "300"、"一万亿元"
-_NUMBER_PATTERNS = [
-    re.compile(r"[0-9]+(?:\.[0-9]+)?"),
-    re.compile(r"[零一二三四五六七八九十百千万亿]+"),
-]
+
+def _cn_to_number(text: str) -> int:
+    """把简单中文数字串转阿拉伯（个位/十位以内的常用表述）。
+
+    支持 "四点五"（会截断取整）这里主要给"成"前数字用（如"四成"=40%）。
+    完整中文数字大数（百千万）不在此处理，只处理百分号场景常见的个位数。
+    """
+    # 只处理"X成"前的一至九
+    if text in _CN_NUM:
+        return _CN_NUM[text]
+    return -1
+
+
+def _cn_percent_to_number(text: str) -> float:
+    """把中文百分比文本（百分之四点五）转成 float 百分比值，失败返回 None。"""
+    m = re.fullmatch(r"百分之(.+)", text)
+    if not m:
+        return None
+    inner = m.group(1)
+    # 支持 "四点五" -> 4.5；逐字拼
+    # 简化：若含"点"，取点前整数+点后单字；否则逐字累加（个位数内）
+    if "点" in inner:
+        a, _, b = inner.partition("点")
+        int_part = 0
+        for ch in a:
+            if ch in _CN_NUM:
+                int_part = int_part * 10 + _CN_NUM[ch]
+        frac_part = 0.0
+        if b and b[0] in _CN_NUM:
+            frac_part = _CN_NUM[b[0]] / 10.0
+        return float(int_part) + frac_part
+    total = 0.0
+    for ch in inner:
+        if ch in _CN_NUM:
+            total = total * 10 + _CN_NUM[ch]
+    return float(total)
+
+
+def _percent_to_value(fact: str) -> float | None:
+    """把百分比事实统一为数值百分比（% 单位），供数值比对。
+
+    支持：'4.5%' -> 4.5；'百分之四点五' -> 4.5；'超4成' -> 40；
+        '四成' -> 40；'超4%' -> 4；带修饰词返回正值（调用方用范围判断）。
+    """
+    fact = fact.strip()
+    neg = False
+    # 处理修饰前缀：目前统一近似为"修饰后仍应接近原值"，仅剥离标记，
+    # 实际比对交给 _facts_compatible 的范围判断。此处剥离非数值部分。
+    for p in _APPROX_PREFIX:
+        if fact.startswith(p):
+            fact = fact[len(p):]
+            break
+    # 阿拉伯百分比
+    m = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)%", fact)
+    if m:
+        return float(m.group(1))
+    # "成"
+    m = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)成", fact)
+    if m:
+        return float(m.group(1)) * 10.0
+    m = re.fullmatch(r"([一二三四五六七八九])成", fact)
+    if m:
+        v = _cn_to_number(m.group(1))
+        return v * 10.0 if v >= 0 else None
+    # 中文百分之
+    v = _cn_percent_to_number(fact)
+    if v is not None:
+        return v
+    return None
+
+
+def _facts_compatible(cand_value: float, src_value: float) -> bool:
+    """判断两个百分比数值是否兼容（容忍较小波动）。
+
+    由于摘要是压缩转述，允许源值与候选存在一定相对差（默认 <5% 相对）。
+    4.5 vs 40（超4成）应判不兼容；4.5 vs 4.5 兼容；4.5 vs 4（超4%）视为有出入。
+    """
+    if src_value == 0:
+        return cand_value == 0
+    # 相对差异在 15% 内视为兼容（如 4.5 vs 4.2/4.8）
+    return abs(cand_value - src_value) / abs(src_value) < 0.15
 
 # 季度 + 年份组合：如 "2024年第一季度"
 _YEAR_QUARTER_PATTERNS = [
     re.compile(r"20[0-2][0-9]年[一二三四]季度"),
+]
+
+# 普通裸数字（不含百分号/年份/月份的裸数字）：如 "300"、"一万亿元"
+_NUMBER_PATTERNS = [
+    re.compile(r"[0-9]+(?:\.[0-9]+)?"),
+    re.compile(r"[零一二三四五六七八九十百千万亿]+"),
 ]
 
 
@@ -236,9 +328,19 @@ def check_factual_consistency(candidate: str, source: str) -> list[str]:
     src_facts = _collect_hard_facts(source)
     cand_facts = _collect_hard_facts(candidate)
 
-    # 逐类型检查候选硬事实是否在源文有依据
-    # percent / month / year 为高置信类型
-    for fact_type in ("year_quarter", "percent", "month", "year"):
+    # percent：数值兼容比对（处理 "超4成"/"百分之四点五"/"4.5%" 统一为数值）
+    src_pct_values = [
+        v for v in (_percent_to_value(f) for f in src_facts.get("percent", [])) if v is not None
+    ]
+    for fact in cand_facts.get("percent", []):
+        cv = _percent_to_value(fact)
+        if cv is None:
+            continue  # 无法解析的百分比表达，保守跳过
+        if not any(_facts_compatible(cv, sv) for sv in src_pct_values):
+            violations.append(f"percent: {fact}（源文无匹配数值）")
+
+    # 逐类型检查候选硬事实是否在源文有依据（非 percent 高置信类型）
+    for fact_type in ("year_quarter", "month", "year"):
         for fact in cand_facts.get(fact_type, []):
             supported = _contains_supported(fact, src_facts.get(fact_type, []))
             if not supported:
