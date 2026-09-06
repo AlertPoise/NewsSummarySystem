@@ -25,9 +25,17 @@ function Invoke-NativeCommandCapture([string]$file,[string[]]$arguments){
  return [PSCustomObject]@{ExitCode=$exitCode;Output=(($output|ForEach-Object{$_.ToString()}) -join "`n")}
 }
 function Run([string]$label,[string]$file,[string[]]$arguments,[string]$hint=''){
- Log "      $label";$result=Invoke-NativeCommandCapture $file $arguments
- if($result.Output){$result.Output -split "`r?`n"|ForEach-Object{Write-Host $_;Add-Content -LiteralPath $logFile -Value $_ -Encoding UTF8}}
- if($result.ExitCode -ne 0){throw "$label failed (exit code $($result.ExitCode)). $hint"}
+ if(-not $file -or -not (Test-Path -LiteralPath $file)){throw "Native executable not found: $file"}
+ Log "      $label";$stopwatch=[Diagnostics.Stopwatch]::StartNew();$previousPreference=$ErrorActionPreference
+ try{
+  # Actions stream output instead of using Invoke-NativeCommandCapture: pip downloads
+  # can take a long time, and each stdout/stderr line must reach the console and log.
+  $ErrorActionPreference='Continue'
+  & $file @arguments 2>&1|ForEach-Object{$line=$_.ToString();Write-Host $line;Add-Content -LiteralPath $logFile -Value $line -Encoding UTF8 -ErrorAction Stop}
+  $exitCode=$LASTEXITCODE
+ }finally{$ErrorActionPreference=$previousPreference;$stopwatch.Stop()}
+ if($exitCode -ne 0){throw "$label failed (exit code $exitCode). $hint"}
+ Log ("      PASS - {0} completed in {1:N1} s" -f $label,$stopwatch.Elapsed.TotalSeconds)
 }
 function Test-Mirror([string]$name,[string]$url){try{$r=Invoke-WebRequest -Uri "$url/" -UseBasicParsing -TimeoutSec 30;if($r.StatusCode -lt 200 -or $r.StatusCode -ge 400){throw "HTTP $($r.StatusCode)"};Log "      PASS - $name is reachable ($url)"}catch{Fail "$name 镜像不可访问：$url。不会回退到官方源。详情：$($_.Exception.Message)"}}
 function Get-PythonCandidates {
