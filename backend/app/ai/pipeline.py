@@ -2,6 +2,10 @@
 
 from dataclasses import dataclass
 
+# 契约再导出：C 实现时从本模块抛出（app.exceptions 定义，此处保持
+# `from app.ai.pipeline import InputTooLongError` 可用且不引入重依赖）
+from app.exceptions import InputTooLongError  # noqa: F401
+
 
 @dataclass(frozen=True)
 class SummaryResult:
@@ -21,6 +25,10 @@ class SummaryPipeline:
         raise NotImplementedError("阶段2由C加载正式摘要流水线")
 
     def generate(self, article: str) -> SummaryResult:
-        """为一篇新闻正文生成真实摘要结果。"""
+        """为一篇新闻正文生成真实摘要结果。
+
+        正文超过冻结的 max_input_tokens 时抛 InputTooLongError：属确定性
+        永久不可处理（重试无意义），区别于临时性生成失败。
+        """
         # TODO(C-阶段2)：实现全链路真实推理和从本方法开始的毫秒计时；输入为新闻正文 article，输出为 SummaryResult，必须遵守 docs/ARCHITECTURE.md、max_input_tokens 和唯一业务接口约束。
         raise NotImplementedError("阶段2由C生成真实摘要")

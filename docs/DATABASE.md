@@ -251,6 +251,7 @@ def require_client_id(x_client_id: str = Header(..., alias="X-Client-ID")) -> st
 - **Worker 并发保护**：`claim_pending` 使用 `SELECT ... FOR UPDATE SKIP LOCKED` 或单条 CAS UPDATE；同一新闻不会被两个 Worker 同时进入 processing。
 - **processing 长时间未完成**：本项目不强制超时重置；如果 Worker 进程崩溃导致 processing 永久挂起，由运维或阶段 5 联调时人工修复。API.md §7 明确 E POST 在 processing 状态下不重复创建工作。
 - **API 不允许直接修改 status**：所有状态迁移必须经 SummaryService 公共方法，**禁止** API Route 直接 `UPDATE news_articles SET summary_status=...`。
+- **确定性永久不可处理**：正文超过冻结的 `max_input_tokens` 时 Pipeline 抛 `InputTooLongError`，该类文章重试必然复现。状态机无"永久跳过"终态（§8.1 固定四态），故 Worker 经 `SummaryService.delete_unprocessable` 删除该新闻及外键依赖行（favorites/feedback），**不得**标 failed——否则 `failed → pending` 重试形成死循环。
 
 ### 8.5 SQL CHECK 约束
 

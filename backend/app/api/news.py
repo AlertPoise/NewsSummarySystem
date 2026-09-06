@@ -1,48 +1,60 @@
 """新闻与摘要任务 REST 路由。
 
-A1-04 公共层规范：D 独享所有新闻路由；本阶段只冻结路径与依赖，阶段 3 由 D 填充。
+A1-04 公共层规范：路由只调用 NewsService/SummaryService，错误统一抛 BusinessError，
+由 main.py 全局 handler 序列化。POST summary 不在 HTTP 线程运行 Transformer，
+Worker 是唯一正式 AI 调用者。X-Client-ID 经 dependencies.parse_client_id 解析。
 """
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Path, Query, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import parse_client_id
+from app.exceptions import not_found
 from app.schemas import ApiResponse, NewsDetail, NewsListItem, PageData, SummaryStatusData
+from app.services.news_service import NewsService
+from app.services.summary_service import COMPLETED, SummaryService
 
 router = APIRouter(tags=["新闻"])
 
 
 @router.get("/categories", response_model=ApiResponse[list[str]])
 def get_categories() -> ApiResponse[list[str]]:
-    """TODO(D3-08)：固定六类（科技、财经、社会、体育、国内、国际），按稳定顺序返回。"""
-
-    raise NotImplementedError("D-Phase 3 实现")
+    """返回固定六类分类，不随数据库内容动态变化。"""
+    return ApiResponse(data=NewsService.list_categories())
 
 
 @router.get("/news", response_model=ApiResponse[PageData[NewsListItem]])
 def list_news(
     db: Annotated[Session, Depends(get_db)],
-    page: int = 1,
-    page_size: int = 20,
-    category: str | None = None,
+    page: int = Query(1, ge=1, description="页码，最小 1"),
+    page_size: int = Query(20, ge=1, le=50, description="每页数量，1~50"),
+    category: str | None = Query(None, description="分类，须为六类之一"),
 ) -> ApiResponse[PageData[NewsListItem]]:
-    """TODO(D3-09)：page>=1、page_size 范围 1~50、category∈六类；publish_time DESC 稳定排序，禁止返回 content。"""
-
-    raise NotImplementedError("D-Phase 3 实现")
+    """分页查询新闻，默认 publish_time DESC 稳定排序，禁止返回 content。"""
+    total, items = NewsService.list_news(db, page=page, page_size=page_size, category=category)
+    page_data = PageData[NewsListItem](
+        items=[NewsListItem(**item) for item in items],
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
+    return ApiResponse(data=page_data)
 
 
 @router.get("/news/{news_id}", response_model=ApiResponse[NewsDetail])
 def get_news_detail(
-    news_id: int,
+    news_id: Annotated[int, Path(gt=0, description="新闻 id，必须大于 0（非法值 422）")],
     db: Annotated[Session, Depends(get_db)],
     client_id: Annotated[str | None, Depends(parse_client_id)] = None,
 ) -> ApiResponse[NewsDetail]:
-    """TODO(D3-10 + A3-07)：详情字段；用户状态必须通过 UserService.get_news_user_state 复用。"""
-
-    raise NotImplementedError("D+A-Phase 3 实现")
+    """新闻详情；用户状态必须经 UserService.get_news_user_state 复用，不在此重写。"""
+    detail = NewsService.get_news_detail(db, news_id=news_id, client_id=client_id)
+    if detail is None:
+        raise not_found("新闻不存在")
+    return ApiResponse(data=NewsDetail(**detail))
 
 
 @router.post(
@@ -50,9 +62,14 @@ def get_news_detail(
     response_model=ApiResponse[SummaryStatusData],
 )
 def trigger_summary(
-    news_id: int,
+    news_id: Annotated[int, Path(gt=0, description="新闻 id，必须大于 0（非法值 422）")],
     db: Annotated[Session, Depends(get_db)],
+    response: Response,
 ) -> ApiResponse[SummaryStatusData]:
-    """TODO(D3-13)：仅调用 SummaryService；不得在 HTTP 线程运行 Transformer；Worker 是唯一 AI 调用者。"""
-
-    raise NotImplementedError("D-Phase 3 实现")
+    """摘要触发/重试；仅调用 SummaryService，completed 返回 200，其余状态返回 202。"""
+    result = SummaryService.request_summary(db, news_id=news_id)
+    if result is None:
+        raise not_found("新闻不存在")
+    if result["summary_status"] != COMPLETED:
+        response.status_code = 202
+    return ApiResponse(data=SummaryStatusData(**result))
