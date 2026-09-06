@@ -692,3 +692,27 @@ AI生成内容：逐项核实后合并 origin/main（e86cdd0，无冲突）；de
 Git commit：pending
 
 最终结果：全套 pytest 68/68 通过（63 SQLite 侧 + 5 MySQL 并发）；main 7ea7d0c 已将 InputTooLongError 契约与 delete_unprocessable 事务要求冻结进文档，此前跨角色待追认项闭环。AI_PROMPTS_PENDING：false
+
+## A 阶段3集成：合并main（B训练代码+D新闻业务）记录
+
+日期：2026-09-06
+
+人员：A
+
+角色：项目集成与文档（阶段3收尾同步）
+
+任务目的：将远端 main 合入 A 分支，使本地同时具备 A 业务 API、B 训练代码（b2_* 全套）、D 爬虫/新闻业务/Worker 及其 merge readiness 修复包；修复工作区索引污染（output/ 产物与嵌套目录被误 stage、download_mysql.ps1 与 AI_PROMPTS_我的.md 被删），恢复文件并提交阶段3 AI 记录；union 解决 AI_PROMPTS.md 双侧追加冲突；安装 beautifulsoup4/lxml 新依赖；合并后 pytest 63 passed / 5 skipped（MySQL 并发用例跳过）。
+
+完整Prompt：
+```
+查看现在的文件，看看之前三阶段的能不能做了
+好的
+```
+
+修改文件：backend/*（合并）、model_training/*（合并）、scripts/*（合并+恢复）、docs/AI_PROMPTS.md（记录追加+冲突合并）、docs/AI_PROMPTS_我的.md（恢复）。
+
+使用公共接口：无新增；未改动任何冻结契约。
+
+结果：合并提交 4b5122f 推送至 origin/A；pytest 63 passed, 5 skipped。
+
+AI_PROMPTS_PENDING：false
