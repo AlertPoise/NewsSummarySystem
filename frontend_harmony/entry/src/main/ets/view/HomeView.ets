@@ -32,12 +32,24 @@ export struct HomeView {
           .fontWeight(FontWeight.Bold)
           .fontColor('#1C1C1E')
         Blank()
-        Text('刷新')
-          .fontSize(14)
-          .fontColor('#2B6BFF')
-          .onClick(() => {
-            this.vm.refresh();
-          })
+        if (this.vm.refreshing) {
+          Row({ space: 5 }) {
+            LoadingProgress()
+              .width(14)
+              .height(14)
+              .color('#2B6BFF')
+            Text('刷新中…')
+              .fontSize(13)
+              .fontColor('#8A8F99')
+          }
+        } else {
+          Text('刷新')
+            .fontSize(14)
+            .fontColor('#2B6BFF')
+            .onClick(() => {
+              this.vm.refresh();
+            })
+        }
       }
       .width('100%')
       .padding({ left: 12, right: 12, top: 10, bottom: 6 })

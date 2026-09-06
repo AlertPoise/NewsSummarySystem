@@ -1,24 +1,33 @@
 /**
  * AI 摘要卡片组件（E4-11/E4-15 配套）。
- * 依据新闻详情中的摘要状态机（pending/processing/completed/failed）渲染对应区块：
- * - completed：展示最终摘要、生成耗时与反馈（有帮助/没帮助，可重复更新）；
- * - processing / 生成请求或轮询中：展示处理中文案；
- * - pending：提供“生成摘要”入口；failed：提供“重试”入口。
- * 所有文案状态均由服务端字段驱动，客户端不伪造摘要结果。
+ * 数值属性一律 @Prop：与页面级 @State 镜像建立单向同步，父侧变化会推送并触发
+ * 本组件重绘。V1 状态管理下普通成员变量虽会被父组件重赋值，但不触发子组件
+ * 重绘——这正是此前“摘要已完成、轮询已返回 200，卡片仍停在生成中/未生成”的根因。
+ * 回调仍为普通属性（无需刷新语义）。所有文案状态均由服务端字段驱动，不伪造结果。
+ *
+ * 取值约定（避免 @Prop 联合类型兼容性问题，用哨兵值表达“无”）：
+ * - summaryText 空串 = 尚无摘要正文；summaryTimeMs < 0 = 耗时未知。
  */
-
-import { NewsDetail } from '../model/News';
 
 @Component
 export struct SummaryCard {
-  /** 新闻详情（含 summary_status/summary/summary_time_ms/feedback）。 */
-  news: NewsDetail = new NewsDetail();
+  /** 摘要状态机状态：pending/processing/completed/failed。 */
+  @Prop summaryStatus: string = 'pending';
+
+  /** 最终摘要正文（completed 且非空时展示）。 */
+  @Prop summaryText: string = '';
+
+  /** 摘要生成耗时毫秒（<0 表示未知）。 */
+  @Prop summaryTimeMs: number = -1;
+
+  /** 当前用户反馈：true=有帮助，false=没帮助，null=未反馈。 */
+  @Prop feedback: boolean | null = null;
 
   /** 摘要生成请求或状态轮询进行中。 */
-  busy: boolean = false;
+  @Prop busy: boolean = false;
 
   /** 反馈提交进行中。 */
-  feedbackBusy: boolean = false;
+  @Prop feedbackBusy: boolean = false;
 
   /** 生成/重试摘要回调。 */
   onGenerate: () => void = () => {
@@ -44,7 +53,7 @@ export struct SummaryCard {
           .fontColor('#B0B4BC')
           .margin({ left: 8 })
         Blank()
-        if (!this.busy && this.news.summary_status !== 'completed') {
+        if (!this.busy && this.summaryStatus !== 'completed') {
           Text('刷新状态')
             .fontSize(12)
             .fontColor('#2B6BFF')
@@ -63,7 +72,7 @@ export struct SummaryCard {
             .width(18)
             .height(18)
             .color('#2B6BFF')
-          Text('摘要正在生成中，请稍候…')
+          Text('摘要生成中（首次约需 10~30 秒加载模型）…')
             .fontSize(14)
             .fontColor('#5A5F6A')
         }
@@ -71,15 +80,15 @@ export struct SummaryCard {
         .justifyContent(FlexAlign.Start)
         .alignItems(VerticalAlign.Center)
         .padding({ top: 6, bottom: 6 })
-      } else if (this.news.summary_status === 'completed' && this.news.summary !== null) {
+      } else if (this.summaryStatus === 'completed' && this.summaryText.length > 0) {
         // 已生成：摘要正文 + 耗时 + 反馈
-        Text(this.news.summary)
+        Text(this.summaryText)
           .fontSize(15)
           .lineHeight(24)
           .fontColor('#1C1C1E')
           .width('100%')
-        if (this.news.summary_time_ms !== null) {
-          Text(`生成耗时：${this.news.summary_time_ms} ms`)
+        if (this.summaryTimeMs >= 0) {
+          Text(`模型推理耗时：${this.summaryTimeMs} ms（不含加载/排队）`)
             .fontSize(11)
             .fontColor('#B0B4BC')
             .width('100%')
@@ -90,10 +99,10 @@ export struct SummaryCard {
             .fontColor('#8A8F99')
           Text('有帮助')
             .fontSize(12)
-            .fontColor(this.news.feedback === true ? Color.White : '#2BA471')
+            .fontColor(this.feedback === true ? Color.White : '#2BA471')
             .padding({ left: 10, right: 10, top: 4, bottom: 4 })
             .borderRadius(12)
-            .backgroundColor(this.news.feedback === true ? '#2BA471' : '#E8F6EF')
+            .backgroundColor(this.feedback === true ? '#2BA471' : '#E8F6EF')
             .onClick(() => {
               if (!this.feedbackBusy) {
                 this.onFeedback(true);
@@ -101,10 +110,10 @@ export struct SummaryCard {
             })
           Text('没帮助')
             .fontSize(12)
-            .fontColor(this.news.feedback === false ? Color.White : '#E5484D')
+            .fontColor(this.feedback === false ? Color.White : '#E5484D')
             .padding({ left: 10, right: 10, top: 4, bottom: 4 })
             .borderRadius(12)
-            .backgroundColor(this.news.feedback === false ? '#E5484D' : '#FDEBEC')
+            .backgroundColor(this.feedback === false ? '#E5484D' : '#FDEBEC')
             .onClick(() => {
               if (!this.feedbackBusy) {
                 this.onFeedback(false);
@@ -113,7 +122,7 @@ export struct SummaryCard {
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
-      } else if (this.news.summary_status === 'failed') {
+      } else if (this.summaryStatus === 'failed') {
         // 生成失败：提供重试
         Column({ space: 8 }) {
           Text('摘要生成失败')
@@ -134,7 +143,7 @@ export struct SummaryCard {
           .onClick(() => {
             this.onGenerate();
           })
-      } else if (this.news.summary_status === 'processing') {
+      } else if (this.summaryStatus === 'processing') {
         // 自动刷新已停止但仍处理中：提示手动刷新状态
         Text('摘要仍在服务端处理中，请稍后点击上方“刷新状态”查看结果')
           .fontSize(14)

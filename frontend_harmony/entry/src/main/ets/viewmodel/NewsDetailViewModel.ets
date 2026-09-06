@@ -6,6 +6,7 @@
  */
 
 import { common } from '@kit.AbilityKit';
+import { promptAction } from '@kit.ArkUI';
 import { ApiConfig } from '../common/ApiConfig';
 import { ClientIdManager } from '../common/ClientIdManager';
 import { HttpClient } from '../common/HttpClient';
@@ -36,6 +37,16 @@ export class NewsDetailViewModel {
 
   /** 收藏切换请求进行中。 */
   favoriteBusy: boolean = false;
+
+  /** 静默刷新（不切换整页加载态）进行中，供顶部刷新按钮显示转圈。 */
+  refreshingDetail: boolean = false;
+
+  /** detail 每次替换后的通知回调（页面据此把关键状态镜像为页面级 @State）。 */
+  onDetailChanged: () => void = () => {
+  };
+
+  /** 摘要任务已提交但长时间未完成时的提示（轮询超时后置位）。 */
+  summaryNotice: string = '';
 
   /** 反馈提交进行中。 */
   feedbackBusy: boolean = false;
@@ -77,18 +88,32 @@ export class NewsDetailViewModel {
     }
     if (full) {
       this.loading = true;
+    } else {
+      this.refreshingDetail = true;
     }
     this.errorMessage = '';
     try {
       await ClientIdManager.ensureClientId(ctx);
       const fresh: NewsDetail = await this.client.getNewsDetail(this.newsId);
-      this.detail = fresh;
+      this.setDetail(fresh);
       if (fresh.summary_status === 'processing') {
         this.startPolling();
+      } else {
+        this.stopPolling();
+      }
+      if (fresh.summary_status !== 'pending') {
+        this.summaryNotice = '';
       }
     } catch (err) {
-      this.errorMessage = err.message;
+      // 详情已存在时静默刷新失败也要让用户可见，否则“点刷新没反应”。
+      const msg: string = `刷新失败：${err.message}`;
+      if (full) {
+        this.errorMessage = msg;
+      } else {
+        this.opError = msg;
+      }
     } finally {
+      this.refreshingDetail = false;
       if (full) {
         this.loading = false;
       }
@@ -107,14 +132,19 @@ export class NewsDetailViewModel {
       if (result.summary_status === 'completed' && result.summary !== null) {
         this.applySummary(result);
         this.stopPolling();
+        this.summaryNotice = '';
+        this.toast('摘要已生成');
       } else {
         // 202：任务被接受或仍在处理中，开始有限轮询详情直至最终状态。
+        this.toast('摘要任务已提交，正在生成中…');
         this.startPolling();
       }
     } catch (err) {
       this.opError = `摘要请求失败：${err.message}`;
+      this.toast('摘要请求失败，请稍后重试');
     } finally {
       this.summaryBusy = false;
+      this.notifyState();
     }
   }
 
@@ -128,10 +158,12 @@ export class NewsDetailViewModel {
     next.summary_status = result.summary_status;
     next.summary = result.summary;
     next.summary_time_ms = result.generation_time_ms;
-    this.detail = next;
+    this.setDetail(next);
   }
 
-  /** 收藏/取消收藏切换（E4-13：幂等语义由服务端保证，界面以响应为准）。 */
+  /** 收藏/取消收藏切换（E4-13：幂等语义由服务端保证，界面以响应为准）。
+   *  采用乐观更新：点击立即翻转按钮状态给出即时反馈，请求成功后以服务端结果校准，
+   *  失败则回滚并提示，避免“点了没反应”。 */
   async toggleFavorite(): Promise<void> {
     const ctx: common.UIAbilityContext | null = this.context;
     const current: NewsDetail | null = this.detail;
@@ -140,18 +172,30 @@ export class NewsDetailViewModel {
     }
     this.favoriteBusy = true;
     this.opError = '';
+    const target: boolean = !current.is_favorite;
+    const optimistic: NewsDetail = NewsDetail.copyOf(current);
+    optimistic.is_favorite = target;
+    this.setDetail(optimistic);
     try {
       await ClientIdManager.ensureClientId(ctx);
       const result: FavoriteOperationResult =
-        current.is_favorite ? await this.client.removeFavorite(current.id) : await this.client.addFavorite(current.id);
-      const next: NewsDetail = NewsDetail.copyOf(current);
+        target ? await this.client.addFavorite(current.id) : await this.client.removeFavorite(current.id);
+      // 以服务端响应校准（基于乐观对象复制，避免 null 联合类型）。
+      const next: NewsDetail = NewsDetail.copyOf(optimistic);
       next.is_favorite = result.is_favorite;
-      this.detail = next;
+      this.setDetail(next);
       this.markFavoritesDirty();
+      this.toast(result.is_favorite ? '已收藏' : '已取消收藏');
     } catch (err) {
+      // 请求失败：回滚到真实状态并提示。
+      const rollback: NewsDetail = NewsDetail.copyOf(optimistic);
+      rollback.is_favorite = current.is_favorite;
+      this.setDetail(rollback);
       this.opError = `收藏操作失败：${err.message}`;
+      this.toast('操作失败，请检查网络后重试');
     } finally {
       this.favoriteBusy = false;
+      this.notifyState();
     }
   }
 
@@ -169,17 +213,29 @@ export class NewsDetailViewModel {
       const result: FeedbackResult = await this.client.submitFeedback(current.id, helpful);
       const next: NewsDetail = NewsDetail.copyOf(current);
       next.feedback = result.helpful;
-      this.detail = next;
+      this.setDetail(next);
     } catch (err) {
       this.opError = `反馈提交失败：${err.message}`;
     } finally {
       this.feedbackBusy = false;
+      this.notifyState();
     }
   }
 
   /** 清除操作错误提示。 */
   clearOpError(): void {
     this.opError = '';
+  }
+
+  /** 替换详情对象并通知页面同步镜像（页面依赖镜像字段驱动 UI 刷新）。 */
+  private setDetail(next: NewsDetail): void {
+    this.detail = next;
+    this.onDetailChanged();
+  }
+
+  /** 不替换 detail 但通知页面重新同步镜像（如请求结束 busy 复位）。 */
+  notifyState(): void {
+    this.onDetailChanged();
   }
 
   /** 详情页销毁前停止轮询。 */
@@ -204,24 +260,40 @@ export class NewsDetailViewModel {
     }, ApiConfig.pollIntervalMs);
   }
 
-  /** 单次轮询：拉取详情并按状态决定继续或停止。 */
+  /** 单次轮询：拉取详情并按状态决定继续或停止。单次失败不中断（任务可能仍在生成）。 */
   private async pollOnce(): Promise<void> {
     this.pollTimes++;
     try {
       const fresh: NewsDetail = await this.client.getNewsDetail(this.newsId);
-      this.detail = fresh;
+      this.setDetail(fresh);
       const status: string = fresh.summary_status;
       if (status === 'completed' || status === 'failed') {
+        this.summaryNotice = '';
         this.stopPolling();
+        this.notifyState();
         return;
       }
+    } catch (err) {
+      // 单次网络抖动不终止轮询：继续查直到达到次数上限，避免任务完成却错过同步。
+      if (this.opError.length === 0) {
+        this.opError = `状态刷新失败：${err.message}`;
+      }
+    } finally {
       if (this.pollTimes >= ApiConfig.pollMaxTimes) {
         this.stopPolling();
+        this.notifyState();
+        const current: NewsDetail | null = this.detail;
+        if (current !== null && current.summary_status !== 'completed' &&
+          current.summary_status !== 'failed') {
+          this.summaryNotice = '摘要任务仍在服务端处理中，可稍后点击“刷新状态”查看结果';
+        }
       }
-    } catch (err) {
-      this.opError = `状态刷新失败：${err.message}`;
-      this.stopPolling();
     }
+  }
+
+  /** 轻量 Toast 提示（操作成功/失败/进度等即时反馈）。 */
+  private toast(message: string): void {
+    promptAction.showToast({ message: message, duration: 1800 });
   }
 
   /** 停止轮询并复位计时器。 */

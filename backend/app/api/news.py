@@ -1,8 +1,10 @@
 """新闻与摘要任务 REST 路由。
 
 A1-04 公共层规范：路由只调用 NewsService/SummaryService，错误统一抛 BusinessError，
-由 main.py 全局 handler 序列化。POST summary 不在 HTTP 线程运行 Transformer，
-Worker 是唯一正式 AI 调用者。X-Client-ID 经 dependencies.parse_client_id 解析。
+由 main.py 全局 handler 序列化。POST summary 不在 HTTP 线程运行 Transformer：
+按需单篇经 on_demand 队列交给 API 进程内守护线程，复用 Worker 的正式流水线
+（模型常驻，见 app/on_demand.py）；批量采集/摘要仍由外部 Worker 进程执行。
+X-Client-ID 经 dependencies.parse_client_id 解析。
 """
 
 from typing import Annotated
@@ -10,12 +12,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Path, Query, Response
 from sqlalchemy.orm import Session
 
+from app import on_demand
 from app.database import get_db
 from app.dependencies import parse_client_id
 from app.exceptions import not_found
 from app.schemas import ApiResponse, NewsDetail, NewsListItem, PageData, SummaryStatusData
 from app.services.news_service import NewsService
-from app.services.summary_service import COMPLETED, SummaryService
+from app.services.summary_service import COMPLETED, PENDING, SummaryService
 
 router = APIRouter(tags=["新闻"])
 
@@ -70,6 +73,11 @@ def trigger_summary(
     result = SummaryService.request_summary(db, news_id=news_id)
     if result is None:
         raise not_found("新闻不存在")
+    if result["summary_status"] == PENDING:
+        # 按需生成：入队交给 API 进程内守护线程（幂等，重复请求由领取语义去重）。
+        # 守护线程复用 Worker 正式流水线且模型常驻：首次点击约 10~30 秒（加载模型），
+        # 之后每篇仅推理耗时；不阻塞 HTTP 线程。
+        on_demand.request(news_id)
     if result["summary_status"] != COMPLETED:
         response.status_code = 202
     return ApiResponse(data=SummaryStatusData(**result))

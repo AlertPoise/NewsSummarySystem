@@ -32,7 +32,7 @@ from app.database import SessionLocal
 from app.exceptions import BusinessError, InputTooLongError
 from app.models import NewsArticle
 from app.services.news_service import NewsService
-from app.services.summary_service import PROCESSING, SummaryService
+from app.services.summary_service import PENDING, PROCESSING, SummaryService
 
 try:  # Windows 控制台中文输出保障
     sys.stdout.reconfigure(encoding="utf-8")
@@ -170,6 +170,60 @@ def run_summary_phase(db, pipeline, batch_limit: int = 50) -> dict[str, int]:
     return stats
 
 
+def run_on_demand_summary(db, pipeline, news_id: int) -> None:
+    """按需单篇摘要（客户端点击“生成摘要”唤醒本 Worker 时执行）。
+
+    与批量 run_summary_phase 相同的状态机语义，但只领取指定 news_id：
+    pending -> processing -> completed/failed；确定性超长（InputTooLongError）
+    删除该新闻；非 pending（已完成/正被处理）则直接返回不误操作。
+    """
+    article = db.scalar(
+        select(NewsArticle)
+        .where(NewsArticle.id == news_id, NewsArticle.summary_status == PENDING)
+        .with_for_update(skip_locked=True)
+    )
+    if article is None:
+        print(f"[worker] 文章 id={news_id} 不在 pending 状态（可能已完成或正被其他任务处理），本次不生成。", flush=True)
+        db.rollback()
+        return
+    article.summary_status = PROCESSING
+    article.updated_at = datetime.now()
+    db.commit()
+    try:
+        result = pipeline.generate(article.content)
+    except NotImplementedError as exc:
+        SummaryService.fail(db, article.id, f"摘要流水线未交付：{exc}")
+        print(f"[worker] 流水线未实现，本篇已记为 failed（id={article.id}）。", flush=True)
+        return
+    except InputTooLongError as exc:
+        dependents = SummaryService.delete_unprocessable(db, article.id)
+        if dependents >= 0:
+            print(
+                f"[worker] 文章 id={article.id} 正文超过 max_input_tokens（{exc}），"
+                f"确定性不可摘要，已删除该新闻及 {dependents} 条关联收藏/反馈。",
+                flush=True,
+            )
+        else:
+            print(f"[worker] 文章 id={article.id} 删除 CAS 失败（事务已回滚），本轮跳过。", flush=True)
+        return
+    except Exception as exc:
+        SummaryService.fail(db, article.id, str(exc)[:500])
+        print(f"[worker] 摘要失败 id={article.id}：{str(exc)[:200]}", flush=True)
+        return
+    SummaryService.complete(
+        db,
+        article.id,
+        summary=result.summary,
+        generation_time_ms=result.generation_time_ms,
+        model_version=result.model_version,
+    )
+    print(
+        f"[worker] 摘要完成 id={article.id} 耗时 {result.generation_time_ms}ms "
+        f"模型 {result.model_version}",
+        flush=True,
+    )
+
+
 def recover_stale_processing(db, stale_minutes: float = 10.0) -> int:
     """启动自检：把长时间滞留 processing 的僵尸记录恢复为 failed。
 
@@ -200,6 +254,7 @@ def run_worker(
     skip_crawl: bool = False,
     skip_summary: bool = False,
     stale_minutes: float = 10.0,
+    news_id: int | None = None,
 ) -> None:
     """后台任务入口：单次执行「启动自检 -> 采集入库 -> 摘要处理」一轮。
 
@@ -220,9 +275,14 @@ def run_worker(
             print("[worker] 阶段A按要求跳过（--skip-crawl）。", flush=True)
 
         if not skip_summary:
-            print("[worker] === 阶段B：摘要处理开始 ===", flush=True)
             pipeline = _load_summary_pipeline()
-            if pipeline is not None:
+            if pipeline is None:
+                print("[worker] 正式摘要流水线未就绪（模型加载失败），本轮不生成摘要。", flush=True)
+            elif news_id is not None:
+                print(f"[worker] === 阶段B：按需生成单篇 id={news_id} ===", flush=True)
+                run_on_demand_summary(db, pipeline, news_id=news_id)
+            else:
+                print("[worker] === 阶段B：摘要处理开始 ===", flush=True)
                 run_summary_phase(db, pipeline, batch_limit=summary_batch)
         else:
             print("[worker] 阶段B按要求跳过（--skip-summary）。", flush=True)
@@ -243,6 +303,7 @@ def main() -> None:
         "--stale-minutes", type=float, default=10.0,
         help="processing 滞留超过该分钟数判定为上次异常中断并恢复为 failed（默认 10）",
     )
+    parser.add_argument("--news-id", type=int, default=None, help="只生成指定 id 的单篇摘要（按需模式）")
     args = parser.parse_args()
     run_worker(
         limit=args.limit,
@@ -251,6 +312,7 @@ def main() -> None:
         skip_crawl=args.skip_crawl,
         skip_summary=args.skip_summary,
         stale_minutes=args.stale_minutes,
+        news_id=args.news_id,
     )
 
 

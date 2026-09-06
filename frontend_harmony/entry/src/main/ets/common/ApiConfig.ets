@@ -24,7 +24,8 @@ export class ApiConfig {
   static readonly prefsName: string = 'news_summary_client';
   static readonly clientIdKey: string = 'client_id';
 
-  /** 摘要状态轮询间隔与最大次数；仅在任务已被接受（pending/processing）时有限轮询详情接口。 */
+  /** 摘要状态轮询间隔与最大次数；仅在任务已被接受（pending/processing）时有限轮询详情接口。
+   *  60 秒窗口覆盖首次点击加载模型的 10~30 秒冷启动，超时后页面提示手动“刷新状态”即可续查。 */
   static readonly pollIntervalMs: number = 3000;
-  static readonly pollMaxTimes: number = 12;
+  static readonly pollMaxTimes: number = 20;
 }

@@ -21,7 +21,27 @@ import { SummaryCard } from '../view/SummaryCard';
 struct NewsDetailPage {
   @State vm: NewsDetailViewModel = new NewsDetailViewModel();
 
+  // ---- 镜像状态：把详情对象中“运行期会变化”的字段镜像为页面级 @State ----
+  // V1 状态下对象深层字段/整体替换存在刷新盲区，镜像简单字段保证点击后立即重绘。
+  /** 当前是否已收藏（按钮即时反馈）。 */
+  @State favOn: boolean = false;
+  /** 收藏请求进行中（按钮半透明防连点）。 */
+  @State favBusyOn: boolean = false;
+  /** 摘要状态机：pending/processing/completed/failed。 */
+  @State sumStatus: string = 'pending';
+  /** 摘要正文（completed 后非空）。 */
+  @State sumText: string | null = null;
+  /** 生成耗时毫秒。 */
+  @State sumTimeMs: number | null = null;
+  /** 用户反馈（true/false/null）。 */
+  @State sumFeedback: boolean | null = null;
+  /** 反馈提交进行中。 */
+  @State fbBusyOn: boolean = false;
+
   aboutToAppear(): void {
+    this.vm.onDetailChanged = (): void => {
+      this.syncFromVm();
+    };
     this.vm.attach(getContext(this) as common.UIAbilityContext);
     const params: Record<string, Object> | null = jsonObject(this.getUIContext().getRouter().getParams());
     if (params === null) {
@@ -35,7 +55,28 @@ struct NewsDetailPage {
       this.vm.errorMessage = '新闻参数无效，无法打开详情';
       return;
     }
+    this.syncFromVm();
     this.vm.load(newsIdValue);
+  }
+
+  /** 从 ViewModel 同步镜像字段（detail 每次替换后由回调触发）。 */
+  private syncFromVm(): void {
+    const d: NewsDetail | null = this.vm.detail;
+    if (d === null) {
+      this.favOn = false;
+      this.sumStatus = 'pending';
+      this.sumText = null;
+      this.sumTimeMs = null;
+      this.sumFeedback = null;
+    } else {
+      this.favOn = d.is_favorite;
+      this.sumStatus = d.summary_status;
+      this.sumText = d.summary;
+      this.sumTimeMs = d.summary_time_ms;
+      this.sumFeedback = d.feedback;
+    }
+    this.favBusyOn = this.vm.favoriteBusy;
+    this.fbBusyOn = this.vm.feedbackBusy;
   }
 
   aboutToDisappear(): void {
@@ -58,15 +99,38 @@ struct NewsDetailPage {
           .fontWeight(FontWeight.Medium)
           .fontColor('#1C1C1E')
         Blank()
-        Text('刷新')
-          .fontSize(14)
-          .fontColor('#2B6BFF')
-          .onClick(() => {
-            this.vm.refreshDetail();
-          })
+        if (this.vm.refreshingDetail) {
+          LoadingProgress()
+            .width(16)
+            .height(16)
+            .color('#2B6BFF')
+        } else {
+          Text('刷新')
+            .fontSize(14)
+            .fontColor('#2B6BFF')
+            .onClick(() => {
+              this.vm.refreshDetail();
+            })
+        }
       }
       .width('100%')
       .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+
+      // 摘要任务提示条（提交后仍处理中/轮询超时未完成等温和提示）
+      if (this.vm.summaryNotice.length > 0) {
+        Row({ space: 6 }) {
+          Text('⏳')
+            .fontSize(12)
+          Text(this.vm.summaryNotice)
+            .fontSize(12)
+            .fontColor('#2B6BFF')
+            .maxLines(2)
+            .layoutWeight(1)
+        }
+        .width('100%')
+        .padding({ left: 12, right: 12, top: 5, bottom: 5 })
+        .backgroundColor('#E8F1FF')
+      }
 
       // 操作错误提示条（收藏/反馈/摘要请求失败）
       if (this.vm.opError.length > 0) {
@@ -165,11 +229,14 @@ struct NewsDetailPage {
           .width('100%')
       }
 
-      // AI 摘要卡片：状态机驱动展示与操作
+      // AI 摘要卡片：由页面镜像状态（@State）驱动，保证运行期状态变化即时重绘
       SummaryCard({
-        news: detail,
+        summaryStatus: this.sumStatus,
+        summaryText: this.sumText ?? '',
+        summaryTimeMs: this.sumTimeMs ?? -1,
+        feedback: this.sumFeedback,
         busy: this.vm.isSummaryInProgress(),
-        feedbackBusy: this.vm.feedbackBusy,
+        feedbackBusy: this.fbBusyOn,
         onGenerate: (): void => {
           this.vm.requestSummary();
         },
@@ -206,23 +273,27 @@ struct NewsDetailPage {
     }
   }
 
-  /** 底部收藏操作条：状态以服务端响应为准。 */
+  /** 底部收藏操作条：镜像状态（@State favOn）驱动，点击立即翻转，失败由 VM 回滚。 */
   @Builder
   favoriteBar(detail: NewsDetail | null) {
     if (detail !== null) {
       Row() {
-      Row({ space: 6 }) {
-        Text(detail.is_favorite ? '已收藏，点击取消' : '收藏本篇新闻')
+      Row({ space: 8 }) {
+        Text(this.favOn ? '♥' : '♡')
+          .fontSize(20)
+          .fontColor(this.favOn ? '#E5484D' : Color.White)
+          .fontWeight(FontWeight.Bold)
+        Text(this.favOn ? '已收藏 · 点击取消' : '收藏本篇新闻')
           .fontSize(14)
-          .fontColor(detail.is_favorite ? '#E5484D' : Color.White)
+          .fontColor(this.favOn ? '#E5484D' : Color.White)
           .fontWeight(FontWeight.Medium)
       }
       .width('100%')
       .height(46)
       .borderRadius(23)
       .justifyContent(FlexAlign.Center)
-      .backgroundColor(detail.is_favorite ? '#FDEBEC' : '#2B6BFF')
-      .opacity(this.vm.favoriteBusy ? 0.5 : 1)
+      .backgroundColor(this.favOn ? '#FDEBEC' : '#2B6BFF')
+      .opacity(this.favBusyOn ? 0.55 : 1)
       .onClick(() => {
         this.vm.toggleFavorite();
       })

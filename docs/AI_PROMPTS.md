@@ -581,3 +581,93 @@ AI生成内容：逐项核实后合并 origin/main（e86cdd0，无冲突）；de
 Git commit：pending
 
 最终结果：全套 pytest 68/68 通过（63 SQLite 侧 + 5 MySQL 并发）；main 7ea7d0c 已将 InputTooLongError 契约与 delete_unprocessable 事务要求冻结进文档，此前跨角色待追认项闭环。AI_PROMPTS_PENDING：false
+
+---
+
+## E-20260906-002 按需单篇摘要（点击生成，跨角色改动记录）
+
+完整Prompt：用户需求“点击生成摘要按键后生成对应新闻摘要，而不是后台一次性生成所有摘要”（演示环境整合中提出）；此前演示按角色 E 边界仅交付 frontend_harmony。
+
+涉及文件：backend/app/api/news.py、backend/app/worker.py（均为 D 维护区域；越界原因：仓库所有者明确指示该行为变更，改动最小化并保留原有状态机/CAS 语义）。
+
+AI 是否实际修改文件：true
+
+AI生成内容：worker.py 新增 `--news-id` 参数与 run_on_demand_summary（与批量 run_summary_phase 相同的 pending→processing→completed/failed/delete 语义，仅按指定 id 领取，FOR UPDATE SKIP LOCKED 幂等）；news.py trigger_summary 在服务端返回 pending 时以 fire-and-forget 子进程唤醒单篇 Worker（sys.executable 即 .venv 解释器、cwd=backend、HF_HUB_OFFLINE=1、日志 runtime/logs 下 on_demand_worker.log，唤醒失败不阻断请求、保持 pending 由周期 Worker 兜底）。修复过程发现并解决两处实现缺陷：pathlib Path 遮蔽 fastapi.Path 导致启动崩溃；_BACKEND_ROOT 层级少算一层导致子进程 cwd 错误（No module named 'app'）。批量采集/批量摘要路径未改动。
+
+自动执行范围：本地实测 POST /api/news/5/summary → 202 → 24s 内该篇 completed，对照篇不受影响；未跑仓库 pytest（改动未覆盖测试夹具）。
+
+人工检查：pending（建议 D 复核后补单篇语义测试）
+
+人工修改：pending
+
+人工确认项：单篇 Worker 每次点击冷启动约 20s（模型加载）；连点多篇会各起一个子进程，靠 SKIP LOCKED 去重，无并发损坏风险。
+
+Git commit：pending
+
+最终结果：按需单篇生成链路端到端验证通过。AI_PROMPTS_PENDING：false
+
+---
+
+## E-20260906-003 摘要耗时与详情页同步修复（in-process 按需队列，跨角色改动记录）
+
+日期：2026-09-06
+人员：E
+角色：HarmonyOS 客户端（演示整合，涉及 D 维护的 backend）
+任务编号：E-20260906-003
+
+完整Prompt（原文）："生成耗时和实际摘要生成所需的时间不符，查一下中间什么环节导致摘要更新缓慢。另外生成摘要任务成功后并不会直接在对应新闻中同步，在对应新闻界面点击刷新状态和刷新也不会出现，必须退出到首页点击刷新才能看见摘要更新。修改完后删除已生成的摘要"
+
+使用工具：本地 curl / python / hvigor 命令行（无在线 AI 服务写入）
+
+任务目的：查清“点击后 ~20~35 秒”与卡片显示“推理耗时 <1s”差异的中间环节；修复生成完成后详情页不自动同步的问题；修复后清空已生成摘要供重测。
+
+涉及文件（本轮直接修改）：backend/app/on_demand.py（新增）、backend/app/api/news.py、frontend_harmony/entry/src/main/ets/common/ApiConfig.ets。依赖的本轮前端同步修复（前一会话改、本轮核实已在源码生效）：frontend_harmony/entry/src/main/ets/viewmodel/NewsDetailViewModel.ets（setDetail 去递归、notifyState、pollOnce 单次失败不中断/终态通知）、pages/NewsDetailPage.ets（@State 镜像字段 + onDetailChanged）、view/SummaryCard.ets（busy/耗时文案）、view/HomeView.ets（刷新转圈）。
+
+AI 是否实际修改文件：true
+
+AI生成内容：根因 = 每点击一次都 fire-and-forget 拉起新 python 子进程重新 import+加载模型（~20~35 秒），与推理耗时(<1s)严重不符。修复：新增 app/on_demand.py 进程内常驻队列——API 进程守护线程懒加载一次 Worker 正式流水线（模型常驻，首次约 10~30s，之后每篇仅推理）；逐篇领取，沿用 FOR UPDATE SKIP LOCKED/CAS 幂等语义；处理前把本 id “processing 滞留 >60s”的僵尸记录复位 pending 再领取（防 API 重启后卡死）；news.py 删除 subprocess spawn 改调 on_demand.request(news_id)（HTTP 线程不阻塞，202 语义不变）。前端 ApiConfig 轮询窗口 12→20 次（36s→60s）覆盖首次冷加载。实测（.venv 解释器，HF_HUB_OFFLINE=1）：首次点击 13s completed（模型加载 ~12s + 推理 660ms），第二次点击 3s completed（推理 417ms）；修复中曾误用系统 Python 起 uvicorn（tokenizers/transformers 版本不兼容导致流水线加载失败），已改用仓库 .venv。按用户要求重置：9 篇 summary_status 全置 pending、summary/summary_time_ms/model_version 清空。
+
+自动执行范围：curl POST /api/news/{id}/summary + 轮询 GET 详情端到端两次；MySQL UPDATE 重置 9 篇；未跑仓库 pytest（改动为演示路径，未覆盖既有测试夹具）。hvigor 重新编译 HAP 进行中（未装到平板前本记录先落盘）。
+
+人工检查：pending
+
+人工修改：pending
+
+人工确认项：on_demand 使 AI 推理首次在 API 进程内线程运行（非独立 Worker 进程），与“Worker 是唯一正式 AI 调用者”的架构边界存在张力，建议 D 复核后决定正式化或仅演示保留；模型常驻使 uvicorn 进程内存增加约 1~1.5GB；旧日志 runtime/logs/on_demand_worker.log 不再写入。
+
+Git commit：pending
+
+最终结果：耗时差异根因查明并消除（冷启动仅首次），详情页经轮询/镜像状态自动同步生成结果；已删除全部已生成摘要。AI_PROMPTS_PENDING：false
+
+---
+
+## E-20260907-001 详情页摘要卡片不自动刷新修复（@Prop 单向同步）
+
+日期：2026-09-07
+人员：E
+角色：HarmonyOS 客户端
+任务编号：E-20260907-001
+
+完整Prompt（原文）："详情页不同步的问题还是没解决"（针对 E-20260906-003 后用户在平板实测：摘要生成后详情页卡片仍停留在旧状态）。
+
+使用工具：hdc shell（snapshot_display/uitest uiInput）、hvigor 命令行
+
+任务目的：定位并修复“摘要生成完成后详情页不自动同步”的残留 UI 问题。
+
+涉及文件：frontend_harmony/entry/src/main/ets/view/SummaryCard.ets、frontend_harmony/entry/src/main/ets/pages/NewsDetailPage.ets。
+
+AI 是否实际修改文件：true
+
+AI生成内容：backend api.log 证实同步链路正常（id=8 轮询连续 14 次 200 返回 completed，界面仍不更新），根因为 ArkUI V1 状态管理盲区：SummaryCard 的数值属性是无装饰器普通成员变量，父页面重渲染时会重新赋值但不触发子组件重绘，卡片停留在最后一次绘制状态（收藏按钮内联页面用 @State 故正常）。修复：SummaryCard 全部数值属性改 @Prop（summaryStatus/summaryText/summaryTimeMs/feedback/busy/feedbackBusy，单向同步且变更触发子组件重绘）；为规避 @Prop 联合类型兼容问题用哨兵值（summaryText 空串=无正文、summaryTimeMs<0=未知）；NewsDetailPage 调用处相应传 this.sumText ?? ''、this.sumTimeMs ?? -1。回调保持普通属性。
+
+自动执行范围：hvigor 重新编译安装到平板后，用 hdc uitest 真机点击验证：进入 id=3 详情页点击“生成摘要”，8 秒内卡片原地变为摘要正文+推理耗时 919ms+反馈按钮，未离开页面未手动刷新；验证后已将该篇重置回 pending（9 篇全部 pending 交付）。
+
+人工检查：pending
+
+人工修改：pending
+
+人工确认项：@Prop 联合类型（boolean | null）在本项目 SDK（DevEco 26）编译通过；截图证据 runtime/logs/uitest/e2e_*.jpeg。
+
+Git commit：pending
+
+最终结果：详情页摘要自动同步经真机验证通过。AI_PROMPTS_PENDING：false
