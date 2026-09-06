@@ -4,6 +4,12 @@
 
 系统最终由 HarmonyOS 客户端、FastAPI 后端、MySQL、两个真实新闻来源、BERT、TextRank、Seq2Seq Transformer 和 CNewSum 构成。系统采集新闻、生成最终摘要、展示新闻和模型质量，并持久化收藏与反馈。
 
+### 1.1 正式适用范围与超范围输入
+
+正式目标对象是中文新闻正文。唯一有效的 eligibility 判定为 B 正式交付的 Seq2Seq/T5 tokenizer 对原始 `article` 执行 `add_special_tokens=true`、`truncation=false` 后的 `token_count`：`token_count <= 512` 为 eligible，`token_count > 512` 为 out-of-scope。不得以中文字符数、词数、BERT tokenizer、Crawler 估算或 TextRank 压缩后的文本长度替代该判定。
+
+out-of-scope 新闻没有摘要质量或生成时延保证，不进行 silent truncation，也不属于 Transformer 运行失败。正式 Pipeline 必须抛 `InputTooLongError`；Worker 通过 SummaryService 在事务中删除该新闻及关联收藏/反馈。该删除是项目输入范围过滤的唯一正式新闻删除例外。正式质量和性能评价只使用由同一规则从 CNewSum test 构建的 eligible subset；须记录完整 test、eligible、excluded 的数量和比例，完整 test 仅作诊断。
+
 ## 2. 功能需求
 
 | 编号 | 需求名称 | 最终要求 | 负责人 | 阶段 | 模块/接口 | 验收标准 |
