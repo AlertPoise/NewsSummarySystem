@@ -95,6 +95,19 @@ def test_add_favorite_news_not_found_returns_1002(client: TestClient, valid_uuid
     assert response.json()["code"] == 1002
 
 
+def test_user_routes_reject_non_positive_news_id_with_422(client: TestClient, valid_uuid: str) -> None:
+    """Path 校验错误为 HTTP 422：收藏/反馈路由的 news_id 必须 > 0（API.md §8 冻结契约）。"""
+
+    headers = {"X-Client-ID": valid_uuid}
+    assert client.post("/api/favorites/0", headers=headers).status_code == 422
+    assert client.post("/api/favorites/-1", headers=headers).status_code == 422
+    assert client.delete("/api/favorites/0", headers=headers).status_code == 422
+    assert (
+        client.post("/api/news/0/feedback", headers=headers, json={"helpful": True}).status_code
+        == 422
+    )
+
+
 # ---------- A3-02 取消收藏：DELETE /api/favorites/{news_id} ----------
 
 

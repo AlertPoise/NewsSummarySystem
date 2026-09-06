@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Path
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -18,7 +18,7 @@ router = APIRouter(tags=["反馈"])
     response_model=ApiResponse[FeedbackResponse],
 )
 def submit_feedback(
-    news_id: int,
+    news_id: Annotated[int, Path(gt=0, description="新闻 id，必须大于 0（非法值 422）")],
     body: FeedbackRequest,
     client_id: Annotated[str, Depends(require_client_id)],
     db: Annotated[Session, Depends(get_db)],

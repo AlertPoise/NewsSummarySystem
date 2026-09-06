@@ -6,7 +6,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Path
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -33,7 +33,7 @@ def list_favorites(
     response_model=ApiResponse[FavoriteResponse],
 )
 def add_favorite(
-    news_id: int,
+    news_id: Annotated[int, Path(gt=0, description="新闻 id，必须大于 0（非法值 422）")],
     client_id: Annotated[str, Depends(require_client_id)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ApiResponse[FavoriteResponse]:
@@ -48,7 +48,7 @@ def add_favorite(
     response_model=ApiResponse[FavoriteResponse],
 )
 def remove_favorite(
-    news_id: int,
+    news_id: Annotated[int, Path(gt=0, description="新闻 id，必须大于 0（非法值 422）")],
     client_id: Annotated[str, Depends(require_client_id)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ApiResponse[FavoriteResponse]:

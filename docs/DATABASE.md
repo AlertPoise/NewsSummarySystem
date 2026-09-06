@@ -205,7 +205,7 @@ def require_client_id(x_client_id: str = Header(..., alias="X-Client-ID")) -> st
 | 状态 | 含义 | 终态？ |
 |---|---|---|
 | `pending` | 已入库待摘要；可被 Worker 领取 | 否 |
-| `processing` | 已被 Worker 领取；摘要生成中 | 否（30s 保护见 §8.4） |
+| `processing` | 已被 Worker 领取；摘要生成中 | 否（10 分钟 stale 自检见 §8.4） |
 | `completed` | 摘要生成成功并已持久化 | 是（除失败外不再迁移） |
 | `failed` | 支持范围内的摘要生成运行时失败，可重试 | 否 |
 
@@ -239,7 +239,7 @@ def require_client_id(x_client_id: str = Header(..., alias="X-Client-ID")) -> st
 |---|---|---|---|
 | `pending → processing` | D Worker（`SummaryService.claim_pending`） | 必须是 `UPDATE ... WHERE id=? AND summary_status='pending'` 的 CAS；受影响行数=1 才视为成功，=0 则其他 Worker 已领取，本轮放弃 | `summary_status='processing'`、`updated_at=NOW()` |
 | `processing → completed` | D Worker（`SummaryService.complete_summary`） | 必须在原 `processing` 行 UPDATE；CAS 失败（说明已被重置为 pending）记录警告 | `summary`、`summary_time_ms`、`model_version`、`summary_status='completed'`、`updated_at=NOW()` |
-| `processing → failed` | D Worker 异常路径 | 同上 CAS | `summary_error`、`summary_status='failed'`、`updated_at=NOW()`；`summary`、`summary_time_ms`、`model_version` **保持原值或显式清空（由 D 决定，但写入协议必须固定）** |
+| `processing → failed` | D Worker 异常路径；含每轮启动自检 `recover_stale_processing` 的僵尸 processing 恢复（§8.4） | 同上 CAS | `summary_error`、`summary_status='failed'`、`updated_at=NOW()`；`summary`、`summary_time_ms`、`model_version` **保持原值或显式清空（由 D 决定，但写入协议必须固定）** |
 | `processing → InputTooLongError → 物理删除` | D Worker 捕获 C Pipeline 的确定性范围外异常 | 必须调用 `SummaryService.delete_unprocessable()` 的单一事务 | 依次删除 favorites、feedback、news_articles；不写 failed、不写 summary_error、不重试 |
 | `failed → pending` | E POST `/news/{news_id}/summary` 或 Worker 失败重试 | CAS：`UPDATE ... WHERE id=? AND summary_status='failed'` | `summary_error=NULL`、可选清空 `summary`、`summary_time_ms`、`model_version`、`summary_status='pending'`、`updated_at=NOW()` |
 | 任何 → `processing`（除 pending 外） | **禁止** | — | — |
@@ -249,7 +249,7 @@ def require_client_id(x_client_id: str = Header(..., alias="X-Client-ID")) -> st
 ### 8.4 保护机制
 
 - **Worker 并发保护**：`claim_pending` 使用 `SELECT ... FOR UPDATE SKIP LOCKED` 或单条 CAS UPDATE；同一新闻不会被两个 Worker 同时进入 processing。
-- **processing 长时间未完成**：本项目不强制超时重置；如果 Worker 进程崩溃导致 processing 永久挂起，由运维或阶段 5 联调时人工修复。API.md §7 明确 E POST 在 processing 状态下不重复创建工作。
+- **processing 长时间未完成（stale 自检恢复）**：Worker 每轮启动自检执行 `recover_stale_processing`，把 `updated_at` 滞留超过 `--stale-minutes`（默认 10 分钟，远大于单篇生成性能目标 p95 < 1.5 秒）的 `processing` 经 `SummaryService.fail` 重置为 `failed`（`summary_error` 记录恢复原因），随后可经 E POST 重试回到 pending。恢复依据时间阈值而非无条件清扫，避免误杀并发 Worker 正在处理的篇目（SKIP LOCKED 允许多 Worker 并发）。超时重置仅由 Worker 自检执行，API 不提供也不自动触发；API.md §7 的 E POST 在 processing 状态下不重复创建工作仍然成立。
 - **API 不允许直接修改 status**：所有状态迁移必须经 SummaryService 公共方法，**禁止** API Route 直接 `UPDATE news_articles SET summary_status=...`。
 - **确定性永久不可处理**：正文超过冻结的 `max_input_tokens` 时 Pipeline 抛 `InputTooLongError`，该类文章重试必然复现。状态机无"永久跳过"终态（§8.1 固定四态），故 Worker 经 `SummaryService.delete_unprocessable` 删除该新闻及外键依赖行（favorites/feedback），**不得**标 failed——否则 `failed → pending` 重试形成死循环。
 

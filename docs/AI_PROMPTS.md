@@ -716,3 +716,27 @@ Git commit：pending
 结果：合并提交 4b5122f 推送至 origin/A；pytest 63 passed, 5 skipped。
 
 AI_PROMPTS_PENDING：false
+
+## A 阶段3收尾：D 移交项处理（Path 校验 + §8.4 文档对齐）记录
+
+日期：2026-09-06
+
+人员：A
+
+角色：收藏/反馈路由负责人 + 文档维护
+
+任务目的：处理 D 在 AI 记录中标记的 A 文件待办：① favorites POST/DELETE、feedback POST 三路由补 `Path(gt=0)` 校验，与 API.md §8 已冻结的"news_id 必填且大于 0；Path 校验为 422"契约及 D 路由写法对齐；② 按"修订文档保留代码"原则修订 DATABASE.md——§8.1 processing 行"30s 保护"更正为"10 分钟 stale 自检"，§8.3 processing→failed 触发方补记 `recover_stale_processing`，§8.4"不强制超时重置/人工修复"改写为 Worker 每轮启动自检实际行为（阈值默认 10 分钟、经 SummaryService.fail 重置、API 不触发）。
+
+完整Prompt：
+```
+好的
+```
+（对应前轮确认："D 在 AI 记录里给 A 留了两条待办……要不要我现在就把它们处理掉？"）
+
+修改文件：backend/app/api/favorites.py、backend/app/api/feedback.py、backend/tests/test_api.py（新增 test_user_routes_reject_non_positive_news_id_with_422）、docs/DATABASE.md。
+
+使用公共接口：无变更；REST 路径/字段/错误码均未动，仅补齐已冻结契约要求的 422 行为。
+
+结果：pytest 64 passed, 5 skipped；未发现跨模块问题；未修改其他角色文件。
+
+AI_PROMPTS_PENDING：false
