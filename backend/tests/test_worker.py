@@ -21,6 +21,85 @@ from app.services.summary_service import SummaryService
 from app.worker import run_summary_phase
 
 
+class TestC_DContract:
+    """P1-5：真实 C Pipeline（假组件但走真实代码路径）与 D Worker 的集成契约。
+
+    C 的 SummaryPipeline.generate 预检超长时抛出的必须是 D Worker 捕获的
+    同一个 InputTooLongError（共享 app.exceptions 实例），Worker 据此走
+    delete 而非 failed，防止 failed → pending 永久重试循环。
+    """
+
+    def test_shared_InputTooLongError_is_same_class(self) -> None:
+        """pipeline 再导出的异常与 app.exceptions 的必须是同一个类对象。
+
+        P0-2 修复的回归锁：若 C 侧自造一个独立异常类，D 的
+        `except InputTooLongError` 就捕获不到，超长文章会落到通用
+        Exception 分支被标 failed，进入可重试死循环。
+        """
+        from app.ai import pipeline as ai_pipeline
+        from app import exceptions as exc_mod
+
+        assert ai_pipeline.InputTooLongError is exc_mod.InputTooLongError
+
+    def test_real_pipeline_overlong_deleted_not_failed(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """真实 C Pipeline 抛超长异常时，Worker 删除文章而非标 failed。
+
+        用假 BERT/Transformer 仅隔离模型权重下载；超长预检、抛异常、
+        Worker 捕获、delete_unprocessable 全部走真实代码路径。
+        """
+        import numpy as np
+
+        class FakeBert:
+            def __init__(self, **kwargs: object) -> None:
+                self.is_loaded = True
+
+            def load(self) -> None:
+                self.is_loaded = True
+
+            def encode_batch(self, sentences: list[str]) -> list[object]:
+                return [np.zeros(4) for _ in sentences]
+
+        class FakeSummarizer:
+            model_version = "test-v0"
+            metadata = {
+                "model_name": "dummy",
+                "model_version": "test-v0",
+                "dataset": "CNewSum",
+                "max_input_tokens": 512,
+                "max_new_tokens": 60,
+            }
+
+            def __init__(self, model_dir: object) -> None:
+                pass
+
+            def load(self) -> None:
+                pass
+
+            def count_tokens(self, text: str) -> int:
+                return 600  # 触发真实预检：> 512 → 抛共享 InputTooLongError
+
+            def generate(self, text: str) -> str:
+                raise AssertionError("超长输入不应到达生成阶段")
+
+        monkeypatch.setattr("app.ai.pipeline.BertEncoder", FakeBert)
+        monkeypatch.setattr("app.ai.pipeline.TransformerSummarizer", FakeSummarizer)
+
+        from app.ai.pipeline import SummaryPipeline
+
+        pipeline = SummaryPipeline(max_input_tokens=512)
+        pipeline.load()
+
+        overlong = _add_article(db_session, title="C-D集成超长", content="超长" * 600)
+        stats = run_summary_phase(db_session, pipeline, batch_limit=10)
+
+        assert stats["deleted"] == 1
+        assert stats["failed"] == 0
+        assert db_session.get(NewsArticle, overlong.id) is None
+
+
+
 def _add_article(db: Session, *, title: str, content: str, status: str = "pending") -> NewsArticle:
     """插入一条指定 summary_status 的新闻，返回带 id 的记录。"""
     fixed_time = datetime(2026, 9, 6, 10, 0, 0)
