@@ -164,29 +164,31 @@ class SummaryPipeline:
 
     def _generate_summary(self, article: str) -> str:
         """执行全链路生成，返回最终摘要字符串。"""
-        # 1. NLP 级清洗
+        if self.summarizer is None:
+            raise AiUnavailableError("正式摘要模型未加载。")
+        # 1. 先对 Worker 传入的原始 article 做正式 eligibility 判定
+        #    （项目冻结：正式 T5 tokenizer 对原始 article 未截断计数；
+        #     > max_input_tokens 明确拒绝，先于任何清洗/切分）
+        input_tokens = self.summarizer.count_tokens(article)
+        if input_tokens > self.max_input_tokens:
+            raise InputTooLongError(
+                f"输入正文过长：{input_tokens} token，超过正式模型最大输入 {self.max_input_tokens} token。"
+            )
+        # 2. 只有 eligible 输入才进入 NLP 级清洗
         cleaned = clean_text(article)
         if not cleaned:
             raise AiUnavailableError("输入正文清洗后为空，无法生成摘要。")
-        # 1.1 输入长度预检：用正式摘要模型 tokenizer 精确计数（非 BERT tokenizer）
-        #     （项目冻结：正式 T5 tokenizer 计数；> max_input_tokens 明确拒绝）
-        if self.summarizer is not None:
-            input_tokens = self.summarizer.count_tokens(cleaned)
-            if input_tokens > self.max_input_tokens:
-                raise InputTooLongError(
-                    f"输入正文过长：{input_tokens} token，超过正式模型最大输入 {self.max_input_tokens} token。"
-                )
-        # 2. 中文分句
+        # 3. 中文分句
         sentences = split_sentences(cleaned)
         if not sentences:
             raise AiUnavailableError("输入正文无法切分出有效句子，无法生成摘要。")
-        # 3. BERT 句向量
+        # 4. BERT 句向量
         if self.bert is None:
             raise AiUnavailableError("BERT 编码器未加载。")
         vectors = self.bert.encode_batch(sentences)
-        # 4. TextRank 得分
+        # 5. TextRank 得分
         scores = rank_sentences(vectors)
-        # 5. Token Budget 选句（贪心填预算、恢复原序；返回可直接拼接的文本片段）
+        # 6. Token Budget 选句（贪心填预算、恢复原序；返回可直接拼接的文本片段）
         selected_texts = select_sentences_by_budget(
             sentences,
             scores,
@@ -195,17 +197,15 @@ class SummaryPipeline:
         )
         if not selected_texts:
             raise AiUnavailableError("Token Budget 未选出任何句子，无法生成摘要。")
-        # 6. 拼回送入正式 Transformer（内容即预算对象，无 silent truncation）
+        # 7. 拼回送入正式 Transformer（内容即预算对象，无 silent truncation）
         selected_text = "".join(selected_texts)
-        # 7. 正式 Seq2Seq 生成最终摘要
-        if self.summarizer is None:
-            raise AiUnavailableError("正式摘要模型未加载。")
+        # 8. 正式 Seq2Seq 生成最终摘要
         summary = self.summarizer.generate(selected_text)
         if not summary:
             raise AiUnavailableError("正式摘要模型输出为空，无法生成摘要。")
-        # 8. 输出规范化：修复模型输出的排版问题（空格/标点/百分号格式），不改事实
+        # 9. 输出规范化：修复模型输出的排版问题（空格/标点/百分号格式），不改事实
         normalized = normalize_summary(summary)
-        # 9. 硬事实一致性检查：摘要中的硬事实(百分比/时间/年份)须能在源文找到依据
+        # 10. 硬事实一致性检查：摘要中的硬事实(百分比/时间/年份)须能在源文找到依据
         from app.ai.postprocess import check_factual_consistency
 
         violations = check_factual_consistency(normalized, cleaned)

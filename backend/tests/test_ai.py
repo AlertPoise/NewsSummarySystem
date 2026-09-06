@@ -176,6 +176,92 @@ class TestInputLengthLimit:
         assert result.generation_time_ms >= 0
 
 
+class TestEligibilityOnRawArticle:
+    """eligibility 必须基于 Worker 传入的原始 article，而非 clean_text 之后。
+
+    回归：冻结契约要求正式 T5 tokenizer 对原始 article 判 <=512/>512，
+    清洗(NFKC/去空白/还原实体等)是 eligibility 之后才做的 NLP 步骤。
+    """
+
+    def _make_recording_pipeline(
+        self, monkeypatch: pytest.MonkeyPatch, fake_tokens: int
+    ) -> tuple[SummaryPipeline, object]:
+        """构造已 load 的 Pipeline；FakeSummarizer 记录 count_tokens 收到的原文。"""
+        import numpy as np
+
+        recorded: dict[str, str] = {}
+
+        class FakeBert:
+            def __init__(self, **kwargs: object) -> None:
+                self.is_loaded = True
+
+            def load(self) -> None:
+                self.is_loaded = True
+
+            def encode_batch(self, sentences: list[str]) -> list[object]:
+                return [np.zeros(4) for _ in sentences]
+
+        class FakeSummarizer:
+            model_version = "test-v0"
+            metadata = {
+                "model_name": "dummy",
+                "model_version": "test-v0",
+                "dataset": "CNewSum",
+                "max_input_tokens": 512,
+                "max_new_tokens": 60,
+            }
+
+            def __init__(self, model_dir: object) -> None:
+                pass
+
+            def load(self) -> None:
+                pass
+
+            def count_tokens(self, text: str) -> int:
+                recorded["counted"] = text
+                return fake_tokens
+
+            def generate(self, text: str) -> str:
+                return "生成的摘要。"
+
+        monkeypatch.setattr("app.ai.pipeline.BertEncoder", FakeBert)
+        monkeypatch.setattr("app.ai.pipeline.TransformerSummarizer", FakeSummarizer)
+        pipeline = SummaryPipeline(max_input_tokens=512)
+        pipeline.load()
+        return pipeline, recorded
+
+    def test_count_tokens_receives_raw_article_not_cleaned(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """count_tokens 收到的必须是原始 article（含会被 clean_text 改写的字符）。"""
+        article = "原始　正文​内容。   有多个空格。\n\n第二段。"
+        # clean_text 会去全角空格/零宽/压缩空白；若 eligibility 在 clean 后执行，
+        # counted 将是改写后的字符串而非原文
+        pipeline, recorded = self._make_recording_pipeline(
+            monkeypatch, fake_tokens=100
+        )
+        result = pipeline.generate(article)
+        assert result.summary == "生成的摘要。"
+        assert recorded["counted"] == article, (
+            f"count_tokens 应收到原始 article，实际收到: {recorded['counted']!r}"
+        )
+
+    def test_raw_overlong_rejected_even_if_clean_would_shorten(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """原始输入计数 >512 时，即使 clean_text 可能缩短也必须 InputTooLongError。
+
+        用可清洗缩短的文本模拟边界：原始超长、但含大量会被 clean_text 去掉的
+        空白/全角字符。契约要求按原始 article 判定 → 仍须拒绝。
+        """
+        # fake_tokens=513 模拟原始计数超限；若误在 clean 后判定，清洗掉空白
+        # 会降到 512 以下被放行——本测试锁死这种回归
+        pipeline, _ = self._make_recording_pipeline(monkeypatch, fake_tokens=513)
+        raw = "　　　　" + ("正常新闻内容。" * 20) + "　　"
+        with pytest.raises(InputTooLongError):
+            pipeline.generate(raw)
+
+
 class TestFactualGate:
     """硬事实校验门：摘要含源文不存在的硬事实时拒绝交付。"""
 
