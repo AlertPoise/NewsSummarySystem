@@ -266,6 +266,156 @@ Git commit：pending
 
 AI_PROMPTS_PENDING：false
 
+---
+
+日期：2026-09-05
+
+人员：D
+
+角色：新闻采集/业务/Worker（D-PlutoAkane）
+
+阶段：阶段3
+
+任务编号：D3-11
+
+使用工具：ZCode
+
+任务目的：修复 SummaryService 与 DATABASE.md §8.3 的两处偏差——failed→pending 重试未清 summary_error；complete/fail 未做 CAS 条件更新与失败警告。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：经逐条审计确认 D3-11 偏差后，用户指示"进行修改"。要求按 DATABASE.md §8.3 实现 CAS 条件更新、CAS 失败记警告不覆盖、重试清空 summary_error，方法签名与对外行为不变。
+
+涉及文件：backend/app/services/summary_service.py、docs/AI_PROMPTS.md。
+
+AI 是否实际修改文件：true
+
+AI生成内容：request_summary/complete/fail 改为 CAS 条件 UPDATE（rowcount=0 记警告不写入）；重试路径清空 summary_error，并发竞争未收敛时抛 409/1003；补 logging 警告与中文 docstring。
+
+人工检查：pending
+
+人工修改：pending
+
+Git commit：pending
+
+最终结果：两处偏差已按冻结契约修复；pytest 31 用例、SQLite CAS 专项冒烟 7/7、真实 MySQL 重试路径冒烟通过，待人工验收与提交。
+
+AI_PROMPTS_PENDING：false
+
+---
+
+日期：2026-09-06
+
+人员：D
+
+角色：新闻采集/业务/Worker（D-PlutoAkane）
+
+阶段：阶段3
+
+任务编号：D3-12
+
+使用工具：ZCode
+
+任务目的：完成骨架中 TODO(D-阶段3) 的 run_worker.ps1 调度入口；移除已完成使命的 verify_d3.py 阶段验收脚本。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：用户指示"编写这个脚本文件，并删除verify_d3.py脚本文件"。要求按已实现的 python -m app.worker CLI 做参数化透传，显式使用 backend/.venv 解释器，单轮模式配合外部计划任务调度。
+
+涉及文件：scripts/run_worker.ps1、scripts/verify_d3.py（删除）、docs/AI_PROMPTS.md。
+
+AI 是否实际修改文件：true
+
+AI生成内容：run_worker.ps1 参数化实现（venv 解释器校验、UTF-8 控制台、Push-Location、退出码透传、BOM 修复 PowerShell 5.1 中文解析）；真实单轮验证通过（采集+去重+摘要优雅跳过）。
+
+人工检查：pending
+
+人工修改：pending
+
+Git commit：pending
+
+最终结果：调度脚本可交付使用（C2-11 交付后摘要阶段自动生效）；验收脚本按用户指示移除，历史可经 git 追溯。
+
+AI_PROMPTS_PENDING：false
+
+---
+
+日期：2026-09-06
+
+人员：D
+
+角色：新闻采集/业务/Worker（D-PlutoAkane）
+
+阶段：阶段3 维护
+
+任务编号：D3-12（补记）
+
+使用工具：ZCode
+
+任务目的：修复超长文章死循环 bug——C 的 Pipeline 对超 max_input_tokens 文章抛 InputTooLongError，被 Worker 通用 except 标 failed 后经 request_summary 重置回 pending，形成 failed→pending 永久重试循环。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：用户报告超限文章 failed→pending→failed 死循环，要求把"确定性永久不可处理"与临时失败区分开，最小改动，不破坏 SummaryPipeline.generate() 与状态机公共接口；对超 512 token 文章删除或标记处理，防止进入下一步，按更容易实现的方案执行。
+
+涉及文件：backend/app/exceptions.py、backend/app/ai/pipeline.py、backend/app/services/summary_service.py、backend/app/worker.py、docs/DATABASE.md、backend/tests/test_worker.py、docs/AI_PROMPTS.md。
+
+AI 是否实际修改文件：true
+
+AI生成内容：新增 InputTooLongError 契约异常（exceptions.py 定义、pipeline.py 再导出）；SummaryService.delete_unprocessable 删除外键依赖行与新闻行（CAS 仅 processing）；worker 摘要循环单列 InputTooLongError 分支计入 deleted；DATABASE.md §8.4 补规则；新增 6 项用例。
+
+人工检查：待人工验收；其中 pipeline.py（C 负责文件）与 exceptions.py（公共层文件）为跨角色修改，已在执行后报告，待用户/C 追认异常落点。
+
+人工修改：pending
+
+人工确认项：跨角色修改是否追认。
+
+Git commit：c63cfb4
+
+最终结果：38 项 pytest 全通过；真实库暂无数据变化（流水线未交付，阶段B跳过）；已提示用户 43/72 篇正文超 512 字符，建议与 C 确认 Token Budget 契约。本条为补记，原工作周期遗漏追加。
+
+AI_PROMPTS_PENDING：false
+
+---
+
+日期：2026-09-06
+
+人员：D
+
+角色：新闻采集/业务/Worker（D-PlutoAkane）
+
+阶段：阶段6
+
+任务编号：D6-01、D6-02
+
+使用工具：ZCode
+
+任务目的：补齐阶段6测试缺口——D6-01 Crawler 测试（提取、去噪、映射、去重四维）；D6-02 的 SKIP LOCKED 多 Worker 并发维度（真实 MySQL）。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：用户引用审计结论（D6-01 未完成、D6-02 并发维度缺失），确认可开始后要求完成这两个测试任务。约束：只新增测试文件与追加本记录，不改既有源码与公共接口。
+
+涉及文件：backend/tests/test_crawlers.py（新增）、backend/tests/test_concurrency_mysql.py（新增）、docs/AI_PROMPTS.md。
+
+AI 是否实际修改文件：true
+
+AI生成内容：20 项 crawler 用例（内嵌 HTML 夹具 + monkeypatch 隔离网络，覆盖提取/去噪/图注剔除/标题链/六类映射/结构一致/SHA-256 去重与校验拒绝）；5 项并发用例（FOR UPDATE SKIP LOCKED 跳过被锁行确定性验证、4 线程×24 条恰一次领取、仅领 pending、CAS 重置单胜者与幂等、processing 不被重置），连真实 MySQL 但建独立 {db_name}_e2e 库（应用用户建库失败时按本机免密 root 约定引导，TEST_MYSQL_ROOT_PASSWORD 可覆盖，用例始终以 news_app 身份运行），结束后删库，真实业务库只读不碰。
+
+自动执行范围：本地 pytest 运行、e2e 库建删；未 push。
+
+人工检查：pending
+
+人工修改：pending
+
+人工确认项：无。
+
+Git commit：pending
+
+最终结果：全套 pytest 63/63 通过（58 SQLite + 5 MySQL 并发）；真实库 news_summary 数据原样（72 篇），e2e 库已自动删除。遗留：§9 要求的 scripts/check_ai_prompt_record.py 在仓库中不存在，无法执行该检查，已报告待 A 补齐。
+
+AI_PROMPTS_PENDING：false
+
 ## B CNewSum test 短文本子集诊断记录
 
 日期：2026-09-06
@@ -393,3 +543,41 @@ Git commit：本次提交（仅新闻 token 长度范围相关文档）。
 最终结果：已完成文档一致性检查，等待人工审查。
 
 AI_PROMPTS_PENDING：false
+
+---
+
+日期：2026-09-06
+
+人员：D
+
+角色：新闻采集/业务/Worker（D-PlutoAkane）
+
+阶段：阶段3 维护（merge readiness）
+
+任务编号：D3-11/D3-12/D3-13 维护 + D6-02 补强
+
+使用工具：ZCode
+
+任务目的：按外部审查核实并修复 merge blocker——同步最新 main；delete_unprocessable 原子事务；run_worker.ps1 与根 .venv 统一；news_id Path(gt=0) 422 契约；恢复 AI_PROMPTS_我的.md。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：用户提供外部审查报告（指出落后 main 需同步、delete_unprocessable 在父记录 CAS 失败时仍 commit 导致"子表已删新闻仍在"、run_worker.ps1 找 backend/.venv 与新 setup_runtime_env.ps1 的根 .venv 冲突、news_id 缺 Path(gt=0) 422、AI_PROMPTS_我的.md 被误删），要求仔细检查是否有严重 bug 并修复。
+
+涉及文件：backend/app/services/summary_service.py、backend/app/worker.py、backend/app/api/news.py、backend/tests/test_worker.py、backend/tests/test_api.py、scripts/run_worker.ps1、docs/DATABASE.md（合并）、docs/AI_PROMPTS.md、docs/AI_PROMPTS_我的.md（恢复）。
+
+AI 是否实际修改文件：true
+
+AI生成内容：逐项核实后合并 origin/main（e86cdd0，无冲突）；delete_unprocessable 改为单事务三步 DELETE、CAS 失败或异常整事务 rollback 并返回 -1，worker 据实打印且不计 deleted 统计；新增"CAS 失败依赖行原样保留"回归测试（旧实现下必失败）；news.py 两路由加 Annotated[int, Path(gt=0)] 并补 4 项 API 契约测试（详情字段/404/422×4/202）；run_worker.ps1 根 .venv 优先、backend\.venv 过渡回退，真实冒烟通过。
+
+自动执行范围：本地 pytest、run_worker.ps1 冒烟；未 push。
+
+人工检查：pending
+
+人工修改：pending
+
+人工确认项：stale processing 自动恢复与 main DATABASE.md §8.4"不强制超时重置"的表述差异，建议 A 修订文档保留代码；A 的 favorites/feedback 三路由同样缺 Path(gt=0)，属 A 文件待 A 处理。
+
+Git commit：pending
+
+最终结果：全套 pytest 68/68 通过（63 SQLite 侧 + 5 MySQL 并发）；main 7ea7d0c 已将 InputTooLongError 契约与 delete_unprocessable 事务要求冻结进文档，此前跨角色待追认项闭环。AI_PROMPTS_PENDING：false
