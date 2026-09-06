@@ -300,3 +300,39 @@ Git commit：C 分支重建提交（含 AI 模块实现与测试）
 最终结果：C 分支已重建到最新 main 之上（origin/main 2535670），AI 模块实现+测试就绪，B 交付正式模型后可真实端到端运行。
 
 AI_PROMPTS_PENDING：false
+
+## C 阶段2 GPU 推理修复与正式模型端到端记录
+
+日期：2026-09-06
+
+人员：C
+
+角色：NLP 预处理 / BERT / TextRank / Token Budget / SummaryPipeline / AI 测试
+
+阶段：阶段2（C2-09/11/14）
+
+任务编号：C2-09（正式 Transformer 在线加载）、C2-11（generate 真实端到端）、C2-14（Pipeline 性能优化）
+
+使用工具：Claude Code
+
+任务目的：B 交付正式摘要模型（Langboat/mengzi-t5-base）与 model_metadata.json 后，C 接入真实端到端生成，并定位修复推理性能问题，使预热后单篇生成达标（<1500ms）。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：以组员 C 身份，在 B 交付 runtime/models/news_summarizer/（含 model_metadata.json 正式元信息、T5 权重与 tokenizer）后，完成 C2-09 正式模型在线加载、C2-11 generate 真实端到端、C2-14 性能优化。允许修改 backend/app/ai/ 与 AI 测试；不得改动冻结公共接口、Schema 或其他角色文件。性能口径：模型已 load、GPU 已预热、batch_size=1，单篇 generate <1500ms；不伪造性能与结果。逐阶段验证并记录真实数据。注释中文、标识符英文。
+
+涉及文件：backend/app/ai/summarizer.py（GPU 修复）、backend/app/ai/pipeline.py（超长预检）、backend/tests/test_ai.py（新增超长测试）、runtime/models/news_summarizer/（B 交付，不入库）。
+
+AI 是否实际修改文件：true
+
+AI生成内容：① 接入 B 的正式元信息（model_name=Langboat/mengzi-t5-base、model_version=cnewsum-mengzi-t5-base-v1、max_input_tokens=512、max_new_tokens=80、generation_config num_beams=2），验证元信息字段与代码契约、config.json 架构一致。② 真实端到端跑通：清洗→分句→BERT→TextRank→Token Budget→T5 生成中文摘要成功。③ 定位并修复性能 bug：TransformerSummarizer._load_transformers 原实现未做设备探测与 .to(device)，导致 T5 推理跑在 CPU（平均 2675ms）；修复后自动使用 CUDA GPU，T5 平均降至 907ms。④ 完整 SummaryPipeline 干净 GPU 预热后实测：平均 608ms、P95 720ms、100% 样本 <1500ms，达标。⑤ 按团队约定加超长输入预检：超过正式 max_input_tokens(512) 抛 InputTooLongError，实测 2200token 输入被正确拒绝。⑥ 性能波动根因排查：非代码问题，为 GPU 被桌面应用（动态壁纸/浏览器等）抢占所致，关闭后恢复稳定。⑦ 新增超长拒绝测试 2 例，AI 相关测试 37 全绿。
+
+人工检查：冻结 SummaryResult/SummaryPipeline 接口未改动；无伪造性能与摘要；GPU 修复后验证模型参数设备为 cuda:0；超长拒绝、缺模型报错边界正常；未提交模型权重/缓存/元信息（runtime 已忽略）。
+
+人工修改：pending
+
+Git commit：C 分支 1a1a9f4（GPU 修复）、589a066（超长预检）、314dd4f（重建）
+
+最终结果：C2-09/11/14 完成——正式 T5 模型真实端到端生成通过，性能预热后 608ms（P95 720ms）全面达标；质量指标（ROUGE-L≥0.40）需 B 用 CNewSum test 与参考摘要联合评价（B2-10）。
+
+AI_PROMPTS_PENDING：false
