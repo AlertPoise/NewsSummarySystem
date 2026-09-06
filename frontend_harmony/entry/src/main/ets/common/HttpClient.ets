@@ -170,6 +170,18 @@ export class HttpClient {
     return MetricsData.fromJson(data);
   }
 
+  /** GET /api/health：健康检查（API.md 调用者含"客户端调试"），返回 data.status（如 "healthy"）。 */
+  async getHealth(): Promise<string> {
+    const wrapper: Record<string, Object> = await this.requestJson('/api/health',
+      http.RequestMethod.GET, ClientHeaderMode.None, null);
+    const data: Record<string, Object> | null = jsonObject(wrapper['data']);
+    const status: string | null = data !== null ? jsonString(data, 'status') : null;
+    if (status === null) {
+      throw new ApiException(-1, 200, '健康检查响应缺少 status 字段');
+    }
+    return status;
+  }
+
   /**
    * 统一请求入口：发起请求、超时控制、统一响应包装解析与错误映射。
    * @param path 契约路径（含 /api 前缀，可带 query）

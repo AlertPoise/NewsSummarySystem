@@ -1,19 +1,24 @@
 /**
- * 关于/模型指标视图（E4-16/E4-05 配套）。
- * 指标全部来自 GET /api/model/metrics（B 交付的 CNewSum test 正式评价），不硬编码任何数值；
- * 服务端明确返回“暂无正式评价记录”（404/1002）时展示空态并提示等待 B 交付。
+ * 关于视图（E4-05 配套）。
+ * 模型指标（E4-16）来自 GET /api/model/metrics，不硬编码任何数值：
+ * 服务端存在正式评价记录（B 已交付）时自动展示指标卡片；
+ * 无记录期间不展示该区块，避免“待交付”空态长期占位（B 交付后无需改码即可出现）。
  */
 
 import { MetricsViewModel } from '../viewmodel/MetricsViewModel';
 import { MetricsData } from '../model/News';
 import { ApiConfig } from '../common/ApiConfig';
-import { LoadingView } from './LoadingView';
-import { EmptyView } from './EmptyView';
-import { ErrorView } from './ErrorView';
+import { HttpClient } from '../common/HttpClient';
 
 @Component
 export struct AboutView {
   @State vm: MetricsViewModel = new MetricsViewModel();
+  /** 服务连接测试状态：idle 未测 / testing 进行中 / ok 正常 / fail 失败。 */
+  @State healthState: string = 'idle';
+  /** 服务连接测试结果文案（成功含 status，失败含原因）。 */
+  @State healthMessage: string = '';
+  /** 健康检查客户端（仅调试用途，见 API.md GET /api/health 调用者说明）。 */
+  private healthClient: HttpClient = new HttpClient();
 
   aboutToAppear(): void {
     this.vm.load();
@@ -22,52 +27,31 @@ export struct AboutView {
   build() {
     Column() {
       Row() {
-        Text('模型指标')
+        Text('关于')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor('#1C1C1E')
         Blank()
-        Text('刷新')
-          .fontSize(14)
-          .fontColor('#2B6BFF')
-          .onClick(() => {
-            this.vm.load();
-          })
+        if (this.vm.metrics !== null) {
+          Text('刷新指标')
+            .fontSize(14)
+            .fontColor('#2B6BFF')
+            .onClick(() => {
+              this.vm.load();
+            })
+        }
       }
       .width('100%')
       .padding({ left: 12, right: 12, top: 10, bottom: 6 })
 
       Scroll() {
         Column({ space: 12 }) {
-          // 指标卡片区（加载/错误/空态/数据 四态）
-          if (this.vm.loading && this.vm.metrics === null) {
-            Column() {
-              LoadingView({ hint: '正在加载模型指标…' })
-            }
-            .width('100%')
-            .height(220)
-          } else if (this.vm.errorMessage.length > 0) {
-            Column() {
-              ErrorView({ message: this.vm.errorMessage, onRetry: (): void => {
-                this.vm.load();
-              } })
-            }
-            .width('100%')
-            .height(220)
-          } else if (this.vm.empty) {
-            Column() {
-              EmptyView({
-                hint: '暂无正式模型评价记录',
-                subHint: '待 B 角色交付正式评价（CNewSum test）后，数据将显示在此处'
-              })
-            }
-            .width('100%')
-            .height(220)
-          } else {
+          // 模型指标卡：仅当服务端返回正式评价记录时渲染（无记录不占位）
+          if (this.vm.metrics !== null) {
             this.metricsCard(this.vm.metrics)
           }
 
-          // 关于信息卡片
+          // 关于系统卡片
           Column({ space: 8 }) {
             Text('关于系统')
               .fontSize(15)
@@ -88,6 +72,32 @@ export struct AboutView {
               .fontColor('#8A8F99')
               .lineHeight(18)
               .width('100%')
+            Row({ space: 10 }) {
+              Text('服务连接')
+                .fontSize(12)
+                .fontColor('#8A8F99')
+              if (this.healthState === 'testing') {
+                LoadingProgress()
+                  .width(14)
+                  .height(14)
+                  .color('#2B6BFF')
+              } else {
+                Text('测试连接')
+                  .fontSize(12)
+                  .fontColor('#2B6BFF')
+                  .onClick(() => {
+                    this.testConnection();
+                  })
+              }
+              Text(this.healthMessage)
+                .fontSize(12)
+                .fontColor(this.healthState === 'ok' ? '#2BA471' : '#E5484D')
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .layoutWeight(1)
+            }
+            .width('100%')
+            .alignItems(VerticalAlign.Center)
           }
           .width('100%')
           .padding(14)
@@ -108,6 +118,23 @@ export struct AboutView {
     .backgroundColor('#F5F6FA')
   }
 
+  /** 发起健康检查（GET /api/health），结果写入 healthState/healthMessage。 */
+  private async testConnection(): Promise<void> {
+    if (this.healthState === 'testing') {
+      return;
+    }
+    this.healthState = 'testing';
+    this.healthMessage = '';
+    try {
+      const status: string = await this.healthClient.getHealth();
+      this.healthState = 'ok';
+      this.healthMessage = `连接正常（status=${status}）`;
+    } catch (err) {
+      this.healthState = 'fail';
+      this.healthMessage = `连接失败：${err.message}`;
+    }
+  }
+
   /** 指标条目行。 */
   @Builder
   metricRow(label: string, value: string) {
@@ -124,7 +151,7 @@ export struct AboutView {
     .width('100%')
   }
 
-  /** 模型评价指标卡片。 */
+  /** 模型评价指标卡片（仅在服务端有正式评价记录时展示）。 */
   @Builder
   metricsCard(data: MetricsData | null) {
     if (data !== null) {

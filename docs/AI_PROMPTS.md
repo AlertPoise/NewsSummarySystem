@@ -671,3 +671,69 @@ AI生成内容：backend api.log 证实同步链路正常（id=8 轮询连续 14
 Git commit：pending
 
 最终结果：详情页摘要自动同步经真机验证通过。AI_PROMPTS_PENDING：false
+
+---
+
+## E-20260907-002 前端补全：接入 GET /api/health（关于页“测试连接”）
+
+日期：2026-09-07
+人员：E
+角色：HarmonyOS 客户端
+任务编号：E-20260907-002
+
+完整Prompt（概括）：“读取仓库新增内容，补全前端相关内容”。经全库对照（REQUIREMENTS FR-12~24、DEVELOPMENT_PLAN E4-01~E4-19、API.md 全部 E 侧接口）核实：阶段4 前端 19 项任务均已实现；唯一未接入的契约接口是 API.md §3 GET /api/health（API.md:13 明确调用者含“客户端调试”）。后续用户指示：E6 交付物（测试记录文档/截图/视频）不做，完成其余部分。
+
+使用工具：DevEco hvigor、hdc uitest（dumpLayout 布局树验证，未使用截图）
+
+任务目的：补齐前端对 API.md 冻结契约的最后一个未调用端点，提供用户可自查的服务连接测试入口。
+
+涉及文件：frontend_harmony/entry/src/main/ets/common/HttpClient.ets、frontend_harmony/entry/src/main/ets/view/AboutView.ets。
+
+AI 是否实际修改文件：true
+
+AI生成内容：HttpClient 新增 getHealth()（GET /api/health、无 Header，按契约解析 data.status，缺失字段抛 ApiException）；AboutView“关于系统”卡片新增“服务连接/测试连接”行（idle/testing/ok/fail 四态：testing 显示 LoadingProgress 防连点，成功绿字“连接正常（status=healthy）”，失败红字含中文原因）。
+
+自动执行范围：hvigor 编译通过并安装平板；以 uitest dumpLayout 定位按钮并真实点击，UI 布局树出现“连接正常（status=healthy）”完成端到端验证（后端 GET /api/health 200）。
+
+人工检查：pending
+
+人工修改：pending
+
+人工确认项：E6-01 测试记录文档、E6-02 页面截图、E6-03 演示视频按用户明确指示暂缓，均未交付；frontend_harmony/docs/screenshots/ 现存 3 张基础截图（首页/分类切换/触底分页）为过程产物，是否保留待定；平板宽屏双栏适配为文档未要求的可选改进，未实施。
+
+Git commit：pending
+
+最终结果：前端已覆盖 API.md 全部 9 个业务端点 + health。AI_PROMPTS_PENDING：false
+
+---
+
+## E-20260907-003 关于页移除“模型指标”空态占位
+
+日期：2026-09-07
+人员：E
+角色：HarmonyOS 客户端
+任务编号：E-20260907-003
+
+完整Prompt（原文）：“把这部分在前端删除”（附关于页“暂无正式模型评价记录”空态截图）。
+
+使用工具：DevEco hvigor、hdc uitest dumpLayout（布局树验证，未使用截图）
+
+任务目的：B 正式评价交付前，关于页不再展示“模型指标”空态占位区块。
+
+涉及文件：frontend_harmony/entry/src/main/ets/view/AboutView.ets。
+
+AI 是否实际修改文件：true
+
+AI生成内容：移除页首“模型指标”标题/刷新按钮与 Loading/Error/Empty 三态占位；页面标题改为“关于”。E4-16 真实 API 逻辑保留：metrics 仅在 GET /api/model/metrics 返回正式记录时渲染指标卡（B 交付后无需改码自动出现），头部此时显示“刷新指标”。HttpClient.getMetrics、MetricsViewModel、MetricsData 均未删除。
+
+自动执行范围：编译安装平板后以 dumpLayout 验证：文本“模型指标/暂无正式模型评价记录/待 B 角色交付正式评价”均已消失，“关于/关于系统/测试连接”存在。
+
+人工检查：pending
+
+人工修改：pending
+
+人工确认项：模型指标区块从常驻展示改为“有正式记录才显示”，E4-16 演示时如需展示需先完成 model_evaluations 入库（见 E-20260907-002 的缺口说明）。
+
+Git commit：pending
+
+最终结果：关于页空态占位已移除，真机验证通过。AI_PROMPTS_PENDING：false
