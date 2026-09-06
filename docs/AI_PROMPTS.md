@@ -23,6 +23,7 @@ AI生成内容：
 Git commit：pending / commit hash
 最终结果：
 AI_PROMPTS_PENDING：false
+
 ```
 
 每次使用 AI 协助修改项目时，责任人须在同一工作周期内按模板追加记录；记录必须列出真实涉及文件与人工检查结果。
@@ -262,5 +263,99 @@ AI生成内容：硬性审计规则、共享追加边界和无第三方检查脚
 Git commit：pending
 
 最终结果：审计约束与检查脚本已建立。
+
+AI_PROMPTS_PENDING：false
+
+## B CNewSum test 短文本子集诊断记录
+
+日期：2026-09-06
+
+人员：B
+
+角色：离线训练与模型诊断
+
+阶段：阶段2诊断
+
+任务编号：B2-DIAG-TEST-LT512
+
+使用工具：Codex
+
+任务目的：以已导出的正式 Seq2Seq 模型诊断 CNewSum 正式 test 中不发生 512-token 输入截断样本的质量。
+
+Prompt 类型：Prompt 概括
+
+完整Prompt：快照并保护正式 test，以正式模型 tokenizer 严格筛选 token_count<512 的原序子集，复用固定生成与 ROUGE 评价，保存逐样本预测/指标；不得训练、改权重、跑全量 test、调参、改业务或宣称正式验收通过。
+
+涉及文件：model_training/b2_diag_test_lt512.py、runtime/datasets/derived/cnewsum_test_lt512/、runtime/training_runs/b2-diag-test-lt512-20260905T154936Z/、docs/AI_PROMPTS.md。
+
+AI 是否实际修改文件：true
+
+AI生成内容：可复现的原始 test 快照、严格短文本派生集、CUDA 诊断评价、5,439 条真实预测与 ROUGE 记录；原 test 与正式模型文件指纹保持不变。
+
+自动执行范围：仅 B 的 model_training/、runtime/ 与本审计追加例外；未修改模型权重、公共接口、业务代码或其他说明文档。
+
+人工检查：pending
+
+人工修改：pending
+
+人工确认项：该结果是 test_lt512 诊断结果，不能作为完整 test/Pipeline 验收结论。
+
+Git commit：pending
+
+最终结果：完成。ROUGE-L=0.46397070848972705，quality_pass_rate=0.5984555984555985，正式全量 test 未运行。
+
+AI_PROMPTS_PENDING：false
+
+## B 阶段2 B2-01～B2-09 执行记录
+
+日期：2026-09-05
+
+人员：B
+
+角色：离线训练与模型交付
+
+阶段：阶段2
+
+任务编号：B2-01～B2-09
+
+使用工具：Codex
+
+Prompt 概括：完成 B2-01～B2-09：审计和标准化 CNewSum，严格隔离 test，按官方兼容 ROUGE 调查至多三名候选、CUDA 训练与最多十轮调优，完整记录实验并导出模型；预算 10GB，不执行 B2-10 以后任务。
+
+涉及文件：model_training/、runtime/datasets/、runtime/training_runs/、runtime/models/、docs/AI_PROMPTS.md。
+
+AI生成内容：完成可复现数据审计、标准化、统计、官方兼容 ROUGE、候选验证、CUDA 训练、完整 dev 评价和本地模型导出；B2-07 完整 train 微调耗时 18,351.819499 秒、峰值显存 6,455,761,920 字节，B2-08 覆盖 14,356 条 dev，B2-09 local_files_only 重载及 dev 冒烟通过。
+
+人工检查：pending（未伪造人工检查或提交）。
+
+人工修改：待补充。
+
+最终结果：B2-01～B2-09 完成；test 保持 held-out，未运行 test 模型评价；未执行 B2-10 以后任务。
+
+## B 分支提交整理记录
+
+日期：2026-09-06
+
+人员：B
+
+角色：离线训练与模型交付
+
+任务编号：B-GIT-ORGANIZATION
+
+使用工具：Codex
+
+Prompt 概括：将 B 开发整理至独立 B 分支，只提交可复现训练、评价源码、配置和测试；排除数据、模型、checkpoint、cache、运行产物与虚拟环境，不覆盖 main、C 或其他角色分支，不强推。
+
+涉及文件：model_training/、docs/AI_PROMPTS.md。
+
+AI 是否实际修改文件：true
+
+人工检查：pending
+
+人工修改：pending
+
+Git commit：pending
+
+最终结果：待完成提交与远程推送验证。
 
 AI_PROMPTS_PENDING：false
