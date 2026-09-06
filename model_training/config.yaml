@@ -1,25 +1,32 @@
-# TODO(B-阶段2)：由 B 根据真实 CNewSum 数据规模、正式 checkpoint 和硬件验证填写 CHANGE_ME；输入为 runtime/datasets/ 下的真实数据与 training_runs 实验记录，输出为唯一正式训练配置，必须遵守 docs/ARCHITECTURE.md 的模型元信息和 runtime/models/news_summarizer/ 保存约定。最终数据划分在 B2-01 验证前不得按文件名假定。
+# B2-05/B2-06：依据 b2-03-20260905T084610Z-train-dev-stats 与
+# b2-04-20260905T090437Z-mengzi-pilot 冻结。test 仅保留路径，不参与本 Goal 训练或选择。
 dataset:
   name: CNewSum
-  directory: ../runtime/datasets
-  train_file: CHANGE_ME
-  validation_file: CHANGE_ME
-  test_file: CHANGE_ME
+  directory: ../runtime/datasets/CNewSum_v2/processed
+  train_file: train.jsonl
+  validation_file: dev.jsonl
+  test_file: test.jsonl
 model:
-  checkpoint: CHANGE_ME
+  checkpoint: Langboat/mengzi-t5-base
+  revision: 6616a21ba6f42867e2c14ef4c84ef44e22af3248
   output_directory: ../runtime/models/news_summarizer
-  version: CHANGE_ME
+  version: cnewsum-mengzi-t5-base-v1
 training:
-  seed: CHANGE_ME
-  num_train_epochs: CHANGE_ME
-  learning_rate: CHANGE_ME
-  per_device_train_batch_size: CHANGE_ME
-  per_device_eval_batch_size: CHANGE_ME
-  max_source_length: CHANGE_ME
-  max_target_length: CHANGE_ME
+  seed: 42
+  num_train_epochs: 1
+  learning_rate: 2.0e-5
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 8
+  max_source_length: 512
+  max_target_length: 80
+  precision: fp32
 evaluation:
   rouge_metrics: [rouge1, rouge2, rougeL]
+  evaluator: cnewsum_mlrouge_compatible_v1
+  num_beams: 2
+  length_penalty: 1.0
 benchmark:
   batch_size: 1
-  warmup_runs: CHANGE_ME
-  measured_runs: CHANGE_ME
+  warmup_runs: 0
+  measured_runs: 0
