@@ -11,8 +11,11 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from app.ai.bert_encoder import BertEncoder
 from app.ai.postprocess import normalize_summary
@@ -71,7 +74,12 @@ class SummaryPipeline:
         不依赖当前工作目录。
         """
         settings = get_settings()
-        self.bert_model_name = bert_model_name or settings.bert_model_name or "google-bert/bert-base-chinese"
+        # 骨架 .env.example 默认 BERT_MODEL_NAME=CHANGE_ME；CHANGE_ME/空串视为
+        # 未配置（P0：否则全新部署会拿 "CHANGE_ME" 当模型名导致加载失败）
+        cfg_bert = settings.bert_model_name
+        if not cfg_bert or cfg_bert == "CHANGE_ME":
+            cfg_bert = ""
+        self.bert_model_name = bert_model_name or cfg_bert or "google-bert/bert-base-chinese"
         self.model_dir = model_dir or _resolve_model_dir()
         self.max_input_tokens = max_input_tokens
         self.max_new_tokens = max_new_tokens
@@ -124,9 +132,8 @@ class SummaryPipeline:
                 self.summarizer.generate(warm_text)
             if self.bert is not None and self.bert.is_loaded:
                 self.bert.encode_batch(["今日发布经济数据，运行总体平稳。"])
-        except Exception:
-            # 预热失败不阻断加载（正式推理时仍可尝试）
-            pass
+        except Exception as exc:  # 预热失败不阻断加载，但必须留痕（不静默吞掉）
+            logger.warning("Pipeline 预热失败（继续加载，正式推理仍可尝试）：%s", exc)
 
     def generate(self, article: str) -> SummaryResult:
         """为一篇新闻正文生成真实摘要结果。
